@@ -4,37 +4,29 @@
   "description": "Lux 官方插件目录",
   "plugins": [
     {
-      "id": "org.lux.tmdb",
-      "name": "TMDb 元数据插件",
-      "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
-      "category": "SCRAPER",
-      "version": "0.1.5",
-      "runtime": "process",
-      "capabilities": ["metadata.search", "metadata.get", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
-      "package": "packages/org.lux.tmdb-0.1.5.zip",
-      "sha256": "8c2de2bcaad14d780b5fb50147e120152f80def4eae95f6ddc33e108e4eba509"
-    },
-    {
-      "id": "org.lux.strm-media-info",
-      "name": "strm媒体信息提取",
-      "description": "使用 ffprobe 提取媒体信息，并使用 ffmpeg 补全 STRM 缩略图。",
-      "category": "MEDIA",
-      "version": "0.2.0",
-      "runtime": "process",
-      "capabilities": ["media.probe"],
-      "package": "packages/org.lux.strm-media-info-0.2.0.zip",
-      "sha256": "b116861322e6cb4bbb12a9de5f73ff56bc1221aafdf80f94ac1ae4410061b9b9"
-    },
-    {
       "id": "org.lux.ip-hiofd",
       "name": "IP归属地查询增强",
       "description": "通过 Hiofd 查询公网 IP 的归属地信息。",
       "category": "NETWORK",
       "version": "0.1.0",
       "runtime": "process",
-      "capabilities": ["ip.location"],
-      "package": "packages/org.lux.ip-hiofd-0.1.0.zip",
-      "sha256": "4e69bddd8be21b88a07d07f01db46f3beb3184f5c4bd85596ff34425e517a0f3"
+      "capabilities": [
+        "ip.location"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.ip-hiofd-0.1.0-linux-aarch64.zip",
+          "sha256": "1cc18a886d87477debaa48c1947ff324183b158a3014a682a6b28f3129ec1f28"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.ip-hiofd-0.1.0-linux-x86_64.zip",
+          "sha256": "d07929bdfcc486fb2704d70be3da9a690858da6fb7ea053fd4571483127b5d9a"
+        }
+      ]
     },
     {
       "id": "org.lux.qoo-ip138",
@@ -43,9 +35,78 @@
       "category": "NETWORK",
       "version": "0.1.0",
       "runtime": "process",
-      "capabilities": ["ip.location"],
-      "package": "packages/org.lux.qoo-ip138-0.1.0.zip",
-      "sha256": "325fa68aef68efa0ed147d5738b1f1d10b16c954f5c86c40465fbefdc3641a5a"
+      "capabilities": [
+        "ip.location"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.qoo-ip138-0.1.0-linux-aarch64.zip",
+          "sha256": "f38791fd6a8798bfad195ce94a08fa5891ce96b24cd1eda7449ee694e7894d73"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.qoo-ip138-0.1.0-linux-x86_64.zip",
+          "sha256": "508e512fa0719df5f19233db8c3b4113672a975dd96325e03042bf0955377cbb"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.strm-media-info",
+      "name": "strm媒体信息提取",
+      "description": "使用 ffprobe 提取媒体信息，并使用 ffmpeg 补全 STRM 缩略图。",
+      "category": "MEDIA",
+      "version": "0.2.0",
+      "runtime": "process",
+      "capabilities": [
+        "media.probe"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.strm-media-info-0.2.0-linux-aarch64.zip",
+          "sha256": "042e19c26090818a127cad3d5a757396dd77679eb3cc1240b92b780faadd38e5"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.strm-media-info-0.2.0-linux-x86_64.zip",
+          "sha256": "ba9c051b804ee20bbf4f24eeb8a3aeccb7e5e9922f8d7a469c19e4fe41a199b2"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.tmdb",
+      "name": "TMDb 元数据插件",
+      "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
+      "category": "SCRAPER",
+      "version": "0.1.5",
+      "runtime": "process",
+      "capabilities": [
+        "metadata.search",
+        "metadata.get",
+        "metadata.images",
+        "metadata.credits",
+        "metadata.externalIds",
+        "metadata.trailers"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.tmdb-0.1.5-linux-aarch64.zip",
+          "sha256": "00e2b91bf51a32e98debee8049c460d6da0a8f5e4c91af025f88b4045303c9e6"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/build-1/org.lux.tmdb-0.1.5-linux-x86_64.zip",
+          "sha256": "0babd6b44507b54986ce8aa0dfcbc9cb918ca0aed8ff41039a3fede6bc97ef62"
+        }
+      ]
     }
   ]
 }
