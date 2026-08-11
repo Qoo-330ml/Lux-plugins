@@ -8,11 +8,11 @@
       "name": "TMDb 元数据插件",
       "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
       "category": "SCRAPER",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "runtime": "process",
       "capabilities": ["metadata.search", "metadata.get", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
-      "package": "packages/org.lux.tmdb-0.1.4.zip",
-      "sha256": "82995bf5d0cba47bcceca4b9cf54d6e01f950a1afceed04d183148f1e13b800c"
+      "package": "packages/org.lux.tmdb-0.1.5.zip",
+      "sha256": "8c2de2bcaad14d780b5fb50147e120152f80def4eae95f6ddc33e108e4eba509"
     },
     {
       "id": "org.lux.strm-media-info",
@@ -23,7 +23,7 @@
       "runtime": "process",
       "capabilities": ["media.probe"],
       "package": "packages/org.lux.strm-media-info-0.2.0.zip",
-      "sha256": "1f618421760809bba83cc2a7fc12a186808d41123132a7735a3e64b651048df5"
+      "sha256": "b116861322e6cb4bbb12a9de5f73ff56bc1221aafdf80f94ac1ae4410061b9b9"
     },
     {
       "id": "org.lux.ip-hiofd",
@@ -34,7 +34,7 @@
       "runtime": "process",
       "capabilities": ["ip.location"],
       "package": "packages/org.lux.ip-hiofd-0.1.0.zip",
-      "sha256": "c9fac43a37b034bffaf5ffb55cdb8e256bbdc3e9eaf86a514540c56be46086b6"
+      "sha256": "4e69bddd8be21b88a07d07f01db46f3beb3184f5c4bd85596ff34425e517a0f3"
     },
     {
       "id": "org.lux.qoo-ip138",
@@ -45,7 +45,7 @@
       "runtime": "process",
       "capabilities": ["ip.location"],
       "package": "packages/org.lux.qoo-ip138-0.1.0.zip",
-      "sha256": "09f0620824989c32eeaedf77cac53595b410d100beeb050a20d021fbe4a51717"
+      "sha256": "325fa68aef68efa0ed147d5738b1f1d10b16c954f5c86c40465fbefdc3641a5a"
     }
   ]
 }
