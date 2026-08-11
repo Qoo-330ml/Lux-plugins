@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.ip-hiofd",
+  "name": "IP归属地查询增强",
+  "description": "通过 Hiofd 查询公网 IP 的归属地信息。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "ip_location",
+  "category": "NETWORK",
+  "supportedItemTypes": [],
+  "capabilities": ["ip.location"],
+  "configFields": [],
+  "permissions": {"network": ["toola.hiofd.com"], "filesystem": []},
+  "files": []
+}

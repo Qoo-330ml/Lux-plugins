@@ -2,12 +2,15 @@
 
 This repository is the default plugin store for [Lux](https://github.com/Qoo-330ml/Lux).
 
-`index.json` is the store catalog. Each catalog entry points to a versioned plugin ZIP and
-includes its SHA-256 digest. Lux validates the ZIP and its manifest before installing it into
-`/config/plugins`.
+This repository contains the plugin source code. A push to `main` starts
+`.github/workflows/release.yml`, which builds both `linux-x86_64` and `linux-aarch64` packages on
+matching GitHub-hosted runners, publishes them as Release assets, and updates `index.json` with
+the Release URLs and SHA-256 digests. Lux validates the ZIP and its manifest before installing it
+into `/config/plugins`.
 
-The packages in this catalog are built for `linux-x86_64`, matching the first supported NAS
-deployment target. Add platform-specific packages and entries as they become available for other
-deployment targets.
+The package asset name includes the plugin version and target architecture, for example
+`org.lux.tmdb-0.1.5-linux-x86_64.zip` and `org.lux.tmdb-0.1.5-linux-aarch64.zip`. The Lux host
+selects the matching package from `packages` and stores it under its own canonical plugin ZIP
+name after downloading it.
 
 Do not commit credentials, local configuration, media data, or unreviewed executable packages.
