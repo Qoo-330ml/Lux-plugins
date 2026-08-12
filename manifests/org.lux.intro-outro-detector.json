@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.intro-outro-detector",
+  "name": "片头片尾检测",
+  "description": "使用带位误差容忍、对齐和跨分集共识的有界 Chromaprint 指纹识别共同片头和片尾。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "chapter_detector",
+  "category": "MEDIA",
+  "supportedItemTypes": ["Episode"],
+  "capabilities": ["chapters.detect"],
+  "configFields": [
+    {"key": "libraryIds", "label": "媒体库", "type": "select", "required": true, "multiple": true, "optionsSource": "media-libraries", "description": "选择参与片头片尾检测的剧集媒体库。"},
+    {"key": "concurrency", "label": "并发数", "type": "number", "required": true, "defaultValue": 2, "minimum": 1, "maximum": 16},
+    {"key": "introWindowSeconds", "label": "片头窗口秒数", "type": "number", "required": true, "defaultValue": 180, "minimum": 15, "maximum": 300},
+    {"key": "creditsWindowSeconds", "label": "片尾窗口秒数", "type": "number", "required": true, "defaultValue": 180, "minimum": 15, "maximum": 600},
+    {"key": "matchThreshold", "label": "匹配阈值", "type": "number", "required": true, "defaultValue": 80, "minimum": 1, "maximum": 100},
+    {"key": "schedule", "label": "执行计划", "type": "text", "required": true, "defaultValue": "0 4 * * 0"}
+  ],
+  "permissions": {"network": [], "filesystem": []},
+  "files": []
+}

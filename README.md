@@ -14,3 +14,15 @@ selects the matching package from `packages` and stores it under its own canonic
 name after downloading it.
 
 Do not commit credentials, local configuration, media data, or unreviewed executable packages.
+
+## Intro/outro detector
+
+`org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only
+bounded raw Chromaprint point sequences selected by Lux for at least two episodes in one season.
+Each Base64 payload is a little-endian sequence of `uint32` fingerprint points; one point represents
+`1,238,095` ticks. The detector compares aligned points with a bounded Hamming-distance tolerance,
+requires a non-trivial shared sequence, and uses support across the available episodes before
+emitting a candidate. It does not invoke ffmpeg, access media paths, open network connections, or
+receive source IDs and URLs. It returns only `IntroStart`, `IntroEnd`, and `CreditsStart` candidates;
+Lux remains responsible for time-range validation, confidence filtering, persistence, and
+Emby-compatible chapter output.
