@@ -26,3 +26,11 @@ emitting a candidate. It does not invoke ffmpeg, access media paths, open networ
 receive source IDs and URLs. It returns only `IntroStart`, `IntroEnd`, and `CreditsStart` candidates;
 Lux remains responsible for time-range validation, confidence filtering, persistence, and
 Emby-compatible chapter output.
+
+## TheIntroDB online chapter source
+
+`org.lux.theintrodb-chapter-source` is an independent online chapter source. It queries
+[TheIntroDB](https://theintrodb.org/) using stored TMDb, TVDb, or IMDb metadata, season/episode numbers,
+and optional runtime. It receives no media path, URL, audio fingerprint, or task object, and never runs
+ffmpeg or ffprobe. Empty upstream results preserve existing chapters. Its exact boundary and configuration
+are documented in `README-theintrodb.md`.

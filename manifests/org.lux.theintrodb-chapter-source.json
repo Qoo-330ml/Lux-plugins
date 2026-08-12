@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.theintrodb-chapter-source",
+  "name": "TheIntroDB 片头片尾章节源",
+  "description": "从 TheIntroDB 查询已标注的片头和片尾，并保存为 Lux 特殊章节；不读取视频、不运行 ffmpeg。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "chapter_detector",
+  "category": "MEDIA",
+  "supportedItemTypes": ["Episode"],
+  "capabilities": ["chapters.lookup"],
+  "configFields": [
+    {"key": "libraryIds", "label": "媒体库", "type": "select", "required": true, "multiple": true, "optionsSource": "media-libraries", "description": "选择查询 TheIntroDB 章节数据的剧集媒体库。"},
+    {"key": "concurrency", "label": "批处理并发数", "type": "number", "required": true, "defaultValue": 1, "minimum": 1, "maximum": 16, "description": "宿主任务并发设置；请求本身仍遵循 TheIntroDB 速率限制。"},
+    {"key": "introWindowSeconds", "label": "片头窗口秒数", "type": "number", "required": true, "defaultValue": 180, "minimum": 15, "maximum": 300, "description": "为兼容章节任务配置保留，在线查询不使用此窗口。"},
+    {"key": "creditsWindowSeconds", "label": "片尾窗口秒数", "type": "number", "required": true, "defaultValue": 180, "minimum": 15, "maximum": 600, "description": "为兼容章节任务配置保留，在线查询不使用此窗口。"},
+    {"key": "matchThreshold", "label": "匹配阈值", "type": "number", "required": true, "defaultValue": 80, "minimum": 1, "maximum": 100, "description": "在线数据视为已确认结果，宿主仍保留统一结果校验。"},
+    {"key": "schedule", "label": "执行计划", "type": "text", "required": true, "defaultValue": "0 5 * * 0"},
+    {"key": "apiKey", "label": "TheIntroDB API Key", "type": "password", "required": false, "sensitive": true, "description": "可选。公开接口通常可直接查询；如服务端要求配额认证，可在此填写。"},
+    {"key": "enableIntro", "label": "写入片头章节", "type": "toggle", "defaultValue": true},
+    {"key": "enableCredits", "label": "写入片尾章节", "type": "toggle", "defaultValue": true}
+  ],
+  "permissions": {"network": ["api.theintrodb.org"], "filesystem": []},
+  "files": []
+}

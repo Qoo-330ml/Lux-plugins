@@ -18,8 +18,10 @@ pub const MEDIA_PROBE_CAPABILITY: &str = "media.probe";
 pub const IP_LOCATION_CAPABILITY: &str = "ip.location";
 pub const STRM_RESOLVE_CAPABILITY: &str = "strm.resolve";
 pub const CHAPTER_DETECT_CAPABILITY: &str = "chapters.detect";
+pub const CHAPTER_LOOKUP_CAPABILITY: &str = "chapters.lookup";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
+pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
 pub const CHAPTER_FINGERPRINT_SAMPLE_RATE: u32 = 11_025;
 pub const CHAPTER_FINGERPRINT_POINT_DURATION_TICKS: i64 = 1_238_095;
 pub const CONFIG_OPTIONS_SOURCE_MEDIA_LIBRARIES: &str = "media-libraries";
@@ -134,13 +136,13 @@ impl PluginManifest {
                         "chapter detector plugins must use the MEDIA category".to_owned(),
                     ));
                 }
-                if !self
-                    .capabilities
-                    .iter()
-                    .any(|capability| capability == CHAPTER_DETECT_CAPABILITY)
-                {
+                if !self.capabilities.iter().any(|capability| {
+                    capability == CHAPTER_DETECT_CAPABILITY
+                        || capability == CHAPTER_LOOKUP_CAPABILITY
+                }) {
                     return Err(PluginManifestError::Invalid(
-                        "chapter detector plugins must declare chapters.detect".to_owned(),
+                        "chapter detector plugins must declare chapters.detect or chapters.lookup"
+                            .to_owned(),
                     ));
                 }
             }
@@ -480,6 +482,35 @@ pub struct ChapterFingerprintRpcEpisode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChapterDetectRpcResult {
+    #[serde(default)]
+    pub markers: Vec<ChapterDetectRpcMarker>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChapterLookupRpcRequest {
+    pub episodes: Vec<ChapterLookupRpcEpisode>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChapterLookupRpcEpisode {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmdb_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tvdb_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imdb_id: Option<String>,
+    pub season_number: i64,
+    pub episode_number: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ticks: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChapterLookupRpcResult {
     #[serde(default)]
     pub markers: Vec<ChapterDetectRpcMarker>,
 }
