@@ -5,7 +5,10 @@ This repository is the default plugin store for [Lux](https://github.com/Qoo-330
 This repository contains the plugin source code. A push to `main` starts
 `.github/workflows/release.yml`, which builds both `linux-x86_64` and `linux-aarch64` packages on
 matching GitHub-hosted runners, publishes them as Release assets, and updates `index.json` with
-the Release URLs and SHA-256 digests. Lux validates the ZIP and its manifest before installing it
+the Release URLs and SHA-256 digests. Each plugin owns a stable Release whose tag is its plugin
+ID. Re-running the workflow uploads the current packages to that plugin's existing Release; a
+changed plugin version is added as a new versioned asset in the same Release, while retrying the
+same version replaces the same asset. Lux validates the ZIP and its manifest before installing it
 into `/config/plugins`.
 
 The package asset name includes the plugin version and target architecture, for example

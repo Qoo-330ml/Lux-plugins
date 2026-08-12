@@ -10,7 +10,6 @@ from zipfile import ZipFile
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts", type=Path, required=True)
-    parser.add_argument("--release-tag", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -40,7 +39,7 @@ def main() -> None:
         entry["packages"].append({
             "platform": "linux",
             "arch": arch,
-            "url": f"https://github.com/{args.repository}/releases/download/{args.release_tag}/{asset}",
+            "url": f"https://github.com/{args.repository}/releases/download/{manifest['id']}/{asset}",
             "sha256": digest,
         })
 
