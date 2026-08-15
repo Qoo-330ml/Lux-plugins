@@ -540,6 +540,8 @@ pub fn search_target_matches(item_type: &str, target_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn parses_valid_years_and_rejects_malformed_values() {
@@ -599,5 +601,81 @@ mod tests {
         .unwrap_or_default();
         assert_eq!(response.subjects.items[0].target.id, "1291561");
         assert_eq!(response.subjects.items[0].target_type, "movie");
+    }
+
+    #[tokio::test]
+    async fn decodes_public_suggest_search_over_http() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = [0_u8; 4096];
+            let size = stream.read(&mut request).await.expect("request bytes");
+            let request = String::from_utf8_lossy(&request[..size]);
+            assert!(request.starts_with("GET /j/subject_suggest?q="));
+            let body = r#"[{"id":"1291561","title":"千与千寻","type":"movie","year":"2001"}]"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+        let client = DoubanClient::new(DoubanClientConfig {
+            api_base_url: format!("http://{address}/"),
+            suggest_base_url: format!("http://{address}/"),
+            request_interval: Duration::ZERO,
+            timeout: Duration::from_secs(2),
+            ..DoubanClientConfig::default()
+        })
+        .expect("client");
+        let result = client.suggest_search("千与千寻").await.expect("search");
+        server.await.expect("server");
+        assert_eq!(result[0].id, "1291561");
+    }
+
+    #[tokio::test]
+    async fn sends_signed_frodo_requests_without_logging_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = [0_u8; 4096];
+            let size = stream.read(&mut request).await.expect("request bytes");
+            let request = String::from_utf8_lossy(&request[..size]);
+            assert!(request.starts_with("GET /api/v2/search/movie?"));
+            assert!(request.contains("apikey=key"));
+            assert!(request.contains("_sig="));
+            assert!(!request.contains("secret"));
+            let body = r#"{"subjects":{"items":[{"target_type":"movie","target":{"id":"1291561","title":"千与千寻","year":"2001"}}]}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+        let client = DoubanClient::new(DoubanClientConfig {
+            api_base_url: format!("http://{address}/"),
+            suggest_base_url: format!("http://{address}/"),
+            api_key: Some("key".to_owned()),
+            api_secret: Some("secret".to_owned()),
+            request_interval: Duration::ZERO,
+            timeout: Duration::from_secs(2),
+            ..DoubanClientConfig::default()
+        })
+        .expect("client");
+        let result = client
+            .api_search("千与千寻", "Movie", 1)
+            .await
+            .expect("search");
+        server.await.expect("server");
+        assert_eq!(result.subjects.items[0].target.id, "1291561");
     }
 }
