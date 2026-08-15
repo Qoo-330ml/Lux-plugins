@@ -14,6 +14,7 @@ use luxd::application::{
     media_matching::{MediaKind, parse_media_name, title_candidates},
     plugin_protocol::{PluginRequest, PluginResponse, PluginRpcError},
 };
+use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, OnceCell};
@@ -261,10 +262,14 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
     let Some(url) = image.large.as_deref().or(image.normal.as_deref()) else {
         return Ok(json!({"images": []}));
     };
+    let Some(url) = safe_image_url(Some(url)) else {
+        return Ok(json!({"images": []}));
+    };
+    let thumbnail_url = safe_image_url(image.normal.as_deref()).unwrap_or_else(|| url.clone());
     Ok(json!({"images": [{
         "Type": "Primary",
         "Url": url,
-        "ThumbnailUrl": image.normal.as_deref().unwrap_or(url),
+        "ThumbnailUrl": thumbnail_url,
         "ProviderName": "Douban"
     }]}))
 }
@@ -369,7 +374,7 @@ fn subject_metadata(
         "Votes": votes,
         "Genres": subject.genres,
         "Countries": subject.countries,
-        "PosterUrl": poster,
+        "PosterUrl": poster.and_then(|url| safe_image_url(Some(&url))),
         "ProviderIds": {"Douban": provider_id}
     });
     match item_type {
@@ -418,9 +423,7 @@ fn api_search_results(
         .subjects
         .items
         .into_iter()
-        .filter(|item| {
-            item.target_type.is_empty() || search_target_matches(item_type, &item.target_type)
-        })
+        .filter(|item| search_target_matches(item_type, &item.target_type))
         .filter_map(|item| {
             let target = item.target;
             validate_provider_id(&target.id).ok()?;
@@ -431,7 +434,7 @@ fn api_search_results(
                 "ProductionYear": production_year,
                 "ProviderIds": {"Douban": target.id},
                 "SearchProviderName": "Douban",
-                "ImageUrl": target.cover_url
+                "ImageUrl": safe_image_url(target.cover_url.as_deref())
             }))
         })
         .filter(|item| year.is_none_or(|year| item["ProductionYear"] == year))
@@ -467,7 +470,7 @@ fn suggest_results(
                 "ProductionYear": production_year,
                 "ProviderIds": {"Douban": item.id},
                 "SearchProviderName": "Douban",
-                "ImageUrl": item.img
+                "ImageUrl": safe_image_url(item.img.as_deref())
             }))
         })
         .filter(|item| year.is_none_or(|year| item["ProductionYear"] == year))
@@ -486,7 +489,9 @@ fn actor_credit(credit: DoubanCredit) -> Option<Value> {
         "Name": name,
         "Character": credit.roles.first(),
         "Order": Value::Null,
-        "ProfileUrl": credit.avatar.and_then(|avatar| avatar.large.or(avatar.normal))
+        "ProfileUrl": credit.avatar.and_then(|avatar| {
+            safe_image_url(avatar.large.as_deref().or(avatar.normal.as_deref()))
+        })
     }))
 }
 
@@ -573,6 +578,24 @@ fn validate_provider_id(value: &str) -> Result<(), PluginRpcError> {
         return Err(invalid("providerId is invalid"));
     }
     Ok(())
+}
+
+fn safe_image_url(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    let url = Url::parse(value).ok()?;
+    let host = url.host_str()?;
+    let image_host = host.strip_suffix(".doubanio.com")?;
+    if url.scheme() != "https"
+        || url.username() != ""
+        || url.password().is_some()
+        || !image_host
+            .strip_prefix("img")?
+            .chars()
+            .all(|value| value.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(value.to_owned())
 }
 
 fn invalid(message: &str) -> PluginRpcError {
@@ -681,5 +704,13 @@ mod tests {
             1
         );
         assert!(suggest_results(vec![item], "Movie", Some(1994)).is_empty());
+    }
+
+    #[test]
+    fn only_returns_images_from_douban_cdn_hosts() {
+        assert!(safe_image_url(Some("https://img1.doubanio.com/view/photo/p.jpg")).is_some());
+        assert!(safe_image_url(Some("https://evil.example/image.jpg")).is_none());
+        assert!(safe_image_url(Some("http://img1.doubanio.com/image.jpg")).is_none());
+        assert!(safe_image_url(Some("https://img1.doubanio.com@evil.example/image.jpg")).is_none());
     }
 }
