@@ -18,6 +18,22 @@ name after downloading it.
 
 Do not commit credentials, local configuration, media data, or unreviewed executable packages.
 
+## Douban metadata
+
+`org.lux.douban` implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
+Series search, metadata, poster images, cast/director credits, the Douban provider ID, and
+available trailers. Season metadata is supported when the upstream subject represents a season;
+episode, person, and collection metadata are reported as unsupported because the referenced
+Douban mobile API does not expose a stable equivalent.
+
+Search uses Douban's public subject-suggest endpoint and therefore works without credentials.
+Details and richer metadata use the configured Frodo/WeChat-compatible client. Configure the
+optional `apiKey` and `apiSecret` fields in Lux's plugin settings; `apiSecret` enables signed
+Frodo requests, while `apiKey` alone uses the WeChat-compatible endpoint. Credentials are read
+only by the plugin process and are never included in RPC results or logs. The plugin applies a
+bounded response size, HTTPS endpoint validation, rate limiting, retries for timeouts/429/5xx,
+and a short-lived bounded response cache.
+
 ## Intro/outro detector
 
 `org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only

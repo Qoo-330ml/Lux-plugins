@@ -352,7 +352,8 @@ fn subject_metadata(
         .rating
         .as_ref()
         .and_then(|rating| rating.vote_count)
-        .and_then(|value| i64::try_from(value.round() as i128).ok());
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| value.round() as i64);
     let poster = subject
         .pic
         .as_ref()
@@ -508,6 +509,9 @@ async fn client() -> Result<&'static DoubanClient, PluginRpcError> {
 
 fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError> {
     let config = read_plugin_config();
+    let proxy_url = luxd::network::proxy_url_from_env().map_err(|error| {
+        luxd::application::douban::DoubanError::InvalidConfig(error.to_string())
+    })?;
     let api_key = env::var("LUX_DOUBAN_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -532,7 +536,7 @@ fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError
         request_interval: Duration::from_millis(request_interval_ms),
         timeout: Duration::from_secs(10),
         max_retries: 3,
-        proxy_url: None,
+        proxy_url,
     })
 }
 

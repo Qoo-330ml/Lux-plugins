@@ -587,4 +587,17 @@ mod tests {
         assert!(validate_id("../1291561").is_err());
         assert!(validate_id("1291561?secret").is_err());
     }
+
+    #[test]
+    fn deserializes_the_mobile_search_shape() {
+        let response: DoubanSearchResponse = serde_json::from_value(serde_json::json!({
+            "subjects": {"items": [{
+                "target_type": "movie",
+                "target": {"id": "1291561", "title": "千与千寻", "year": "2001"}
+            }]}
+        }))
+        .unwrap_or_default();
+        assert_eq!(response.subjects.items[0].target.id, "1291561");
+        assert_eq!(response.subjects.items[0].target_type, "movie");
+    }
 }
