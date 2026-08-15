@@ -186,7 +186,15 @@ impl DoubanClient {
     pub fn new(config: DoubanClientConfig) -> Result<Self, DoubanError> {
         let api_base_url = parse_base_url(&config.api_base_url, "Douban API")?;
         let suggest_base_url = parse_base_url(&config.suggest_base_url, "Douban search")?;
-        if config.api_key.is_some() != config.api_secret.is_some() && config.api_secret.is_some() {
+        let api_key = config
+            .api_key
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let api_secret = config
+            .api_secret
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if api_key.is_none() && api_secret.is_some() {
             return Err(DoubanError::InvalidConfig(
                 "api secret requires an api key".to_owned(),
             ));
@@ -204,8 +212,8 @@ impl DoubanClient {
             http,
             api_base_url,
             suggest_base_url,
-            api_key: config.api_key.filter(|value| !value.trim().is_empty()),
-            api_secret: config.api_secret.filter(|value| !value.trim().is_empty()),
+            api_key,
+            api_secret,
             request_interval: config.request_interval,
             next_request: Arc::new(Mutex::new(tokio::time::Instant::now())),
             request_concurrency: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
@@ -231,6 +239,7 @@ impl DoubanClient {
     pub async fn api_search(
         &self,
         query: &str,
+        _item_type: &str,
         count: usize,
     ) -> Result<DoubanSearchResponse, DoubanError> {
         let query = validate_query(query)?;
@@ -357,14 +366,15 @@ impl DoubanClient {
                     status: status.as_u16(),
                 });
             }
-            let bytes = response.bytes().await.map_err(|_| {
-                DoubanError::Transport("response body could not be read".to_owned())
-            })?;
-            if bytes.len() > MAX_RESPONSE_BYTES {
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+            {
                 return Err(DoubanError::InvalidResponse(
                     "response is too large".to_owned(),
                 ));
             }
+            let bytes = read_limited_body(response).await?;
             return serde_json::from_slice(&bytes)
                 .map_err(|error| DoubanError::InvalidResponse(error.to_string()));
         }
@@ -378,6 +388,23 @@ impl DoubanClient {
         }
         *next_request = tokio::time::Instant::now() + self.request_interval;
     }
+}
+
+async fn read_limited_body(mut response: reqwest::Response) -> Result<Vec<u8>, DoubanError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| DoubanError::Transport("response body could not be read".to_owned()))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(DoubanError::InvalidResponse(
+                "response is too large".to_owned(),
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
