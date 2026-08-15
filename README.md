@@ -26,13 +26,13 @@ available trailers. Season metadata is supported when the upstream subject repre
 episode, person, and collection metadata are reported as unsupported because the referenced
 Douban mobile API does not expose a stable equivalent.
 
-Search uses Douban's public subject-suggest endpoint and therefore works without credentials.
-Details and richer metadata use the configured Frodo/WeChat-compatible client. Configure the
-optional `apiKey` and `apiSecret` fields in Lux's plugin settings; `apiSecret` enables signed
-Frodo requests, while `apiKey` alone uses the WeChat-compatible endpoint. Credentials are read
-only by the plugin process and are never included in RPC results or logs. The plugin applies a
-bounded response size, HTTPS endpoint validation, rate limiting, retries for timeouts/429/5xx,
-and a short-lived bounded response cache.
+Search uses Douban's public subject-suggest endpoint. Details and richer metadata use the
+WeChat-compatible client with the public client credential shipped by the upstream Jellyfin
+Douban plugin; administrators can override it with the optional `apiKey` field. Configure
+`apiSecret` only when signed Frodo requests are needed. Credentials are read only by the plugin
+process and are never included in RPC results or logs. The plugin applies a bounded response
+size, HTTPS endpoint validation, rate limiting, retries for timeouts/429/5xx, and a short-lived
+bounded response cache.
 
 ## Intro/outro detector
 

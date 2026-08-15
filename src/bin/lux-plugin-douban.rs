@@ -21,6 +21,9 @@ use tokio::sync::{Mutex, OnceCell};
 
 const PLUGIN_ID: &str = "org.lux.douban";
 const PLUGIN_NAME: &str = "豆瓣元数据插件";
+// Public WeChat client credential used by the upstream Jellyfin Douban plugin.
+// Administrators may override it through plugin configuration or the environment.
+const EMBEDDED_DOUBAN_API_KEY: &str = "054022eaeae0b00e0fc068c0c0a2102a";
 const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CACHE_CAPACITY: usize = 256;
 const MAX_SEARCH_RESULTS: usize = 20;
@@ -527,7 +530,8 @@ fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError
     let api_key = env::var("LUX_DOUBAN_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or(config.api_key);
+        .or(config.api_key)
+        .or_else(|| Some(EMBEDDED_DOUBAN_API_KEY.to_owned()));
     let api_secret = env::var("LUX_DOUBAN_API_SECRET")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -712,5 +716,11 @@ mod tests {
         assert!(safe_image_url(Some("https://evil.example/image.jpg")).is_none());
         assert!(safe_image_url(Some("http://img1.doubanio.com/image.jpg")).is_none());
         assert!(safe_image_url(Some("https://img1.doubanio.com@evil.example/image.jpg")).is_none());
+    }
+
+    #[test]
+    fn uses_the_embedded_public_key_when_no_override_is_present() {
+        let client = build_client().expect("client");
+        assert!(client.has_api_credentials());
     }
 }

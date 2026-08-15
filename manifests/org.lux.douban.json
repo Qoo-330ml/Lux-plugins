@@ -17,7 +17,7 @@
       "type": "password",
       "required": false,
       "sensitive": true,
-      "description": "可选。用于豆瓣移动接口的详情、评分、人物和图片请求。"
+      "description": "可选。默认使用插件内置的公开 WeChat 客户端凭据；填写后覆盖默认值。用于详情、评分、人物和图片请求。"
     },
     {
       "key": "apiSecret",
