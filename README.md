@@ -28,11 +28,12 @@ Douban mobile API does not expose a stable equivalent.
 
 Search uses Douban's public subject-suggest endpoint. Details and richer metadata use the
 WeChat-compatible client with the public client credential shipped by the upstream Jellyfin
-Douban plugin; administrators can override it with the optional `apiKey` field. Configure
-`apiSecret` only when signed Frodo requests are needed. Credentials are read only by the plugin
-process and are never included in RPC results or logs. The plugin applies a bounded response
-size, HTTPS endpoint validation, rate limiting, retries for timeouts/429/5xx, and a short-lived
-bounded response cache.
+Douban plugin. No credential configuration is required; the plugin is usable immediately after
+installation. The optional `requestIntervalMs` setting only tunes request pacing. For private
+testing or a future credential rotation, environment variables can override the built-in client
+key without changing the package. Credentials are never included in RPC results or logs. The
+plugin applies a bounded response size, HTTPS endpoint validation, rate limiting, retries for
+timeouts/429/5xx, and a short-lived bounded response cache.
 
 ## Intro/outro detector
 

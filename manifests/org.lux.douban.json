@@ -10,24 +10,7 @@
   "category": "SCRAPER",
   "supportedItemTypes": ["Movie", "Series", "Season"],
   "capabilities": ["metadata.search", "metadata.get", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
-  "configFields": [
-    {
-      "key": "apiKey",
-      "label": "豆瓣 API Key",
-      "type": "password",
-      "required": false,
-      "sensitive": true,
-      "description": "可选。默认使用插件内置的公开 WeChat 客户端凭据；填写后覆盖默认值。用于详情、评分、人物和图片请求。"
-    },
-    {
-      "key": "apiSecret",
-      "label": "豆瓣 API Secret",
-      "type": "password",
-      "required": false,
-      "sensitive": true,
-      "description": "可选。与 API Key 同时填写时启用签名的 Frodo 客户端。"
-    },
-    {
+  "configFields": [{
       "key": "requestIntervalMs",
       "label": "请求间隔（毫秒）",
       "type": "number",
@@ -37,8 +20,7 @@
       "minimum": 0,
       "maximum": 60000,
       "description": "豆瓣请求之间的最小间隔，建议保留默认值。"
-    }
-  ],
+    }],
   "permissions": {
     "network": [
       "frodo.douban.com",

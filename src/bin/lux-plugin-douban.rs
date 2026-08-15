@@ -41,10 +41,6 @@ struct CachedResponse {
 #[serde(rename_all = "camelCase")]
 struct DoubanPluginConfig {
     #[serde(default)]
-    api_key: Option<String>,
-    #[serde(default)]
-    api_secret: Option<String>,
-    #[serde(default)]
     request_interval_ms: Option<u64>,
 }
 
@@ -527,15 +523,15 @@ fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError
     let proxy_url = luxd::network::proxy_url_from_env().map_err(|error| {
         luxd::application::douban::DoubanError::InvalidConfig(error.to_string())
     })?;
-    let api_key = env::var("LUX_DOUBAN_API_KEY")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or(config.api_key)
-        .or_else(|| Some(EMBEDDED_DOUBAN_API_KEY.to_owned()));
+    let api_key = Some(
+        env::var("LUX_DOUBAN_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| EMBEDDED_DOUBAN_API_KEY.to_owned()),
+    );
     let api_secret = env::var("LUX_DOUBAN_API_SECRET")
         .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or(config.api_secret);
+        .filter(|value| !value.trim().is_empty());
     let request_interval_ms = env::var("LUX_DOUBAN_REQUEST_INTERVAL_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -719,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_the_embedded_public_key_when_no_override_is_present() {
+    fn always_has_a_default_public_key_without_configuration() {
         let client = build_client().expect("client");
         assert!(client.has_api_credentials());
     }
