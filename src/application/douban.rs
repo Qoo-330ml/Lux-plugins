@@ -22,7 +22,6 @@ type HmacSha1 = Hmac<sha1::Sha1>;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct DoubanSearchResponse {
-    #[serde(default)]
     pub subjects: DoubanSearchSubjects,
 }
 
@@ -54,6 +53,8 @@ pub struct DoubanSearchTarget {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct DoubanSuggestItem {
+    #[serde(default)]
+    pub episode: Option<String>,
     #[serde(default)]
     pub id: String,
     #[serde(default)]
@@ -601,6 +602,7 @@ mod tests {
         .unwrap_or_default();
         assert_eq!(response.subjects.items[0].target.id, "1291561");
         assert_eq!(response.subjects.items[0].target_type, "movie");
+        assert!(serde_json::from_value::<DoubanSearchResponse>(serde_json::json!({})).is_err());
     }
 
     #[tokio::test]

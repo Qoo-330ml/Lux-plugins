@@ -447,8 +447,15 @@ fn suggest_results(
     items
         .into_iter()
         .filter(|item| {
-            item.item_type
-                .eq_ignore_ascii_case(if item_type == "Movie" { "movie" } else { "tv" })
+            let season_like = item
+                .episode
+                .as_deref()
+                .is_some_and(|episode| !episode.trim().is_empty());
+            if item_type == "Series" {
+                item.item_type.eq_ignore_ascii_case("tv") || season_like
+            } else {
+                item.item_type.eq_ignore_ascii_case("movie") && !season_like
+            }
         })
         .filter_map(|item| {
             validate_provider_id(&item.id).ok()?;
@@ -657,5 +664,22 @@ mod tests {
             crew.as_ref().map(|value| &value["Job"]),
             Some(&json!("Director"))
         );
+    }
+
+    #[test]
+    fn treats_suggest_items_with_episode_counts_as_series_seasons() {
+        let item = DoubanSuggestItem {
+            id: "1393859".to_owned(),
+            title: Some("老友记 第一季".to_owned()),
+            year: Some("1994".to_owned()),
+            item_type: "movie".to_owned(),
+            episode: Some("24".to_owned()),
+            ..DoubanSuggestItem::default()
+        };
+        assert_eq!(
+            suggest_results(vec![item.clone()], "Series", Some(1994)).len(),
+            1
+        );
+        assert!(suggest_results(vec![item], "Movie", Some(1994)).is_empty());
     }
 }
