@@ -328,7 +328,9 @@ fn validate_secret(secret: Option<&str>) -> Result<&str, PluginRpcError> {
 }
 
 fn canonical_signature(secret: &str, timestamp: &str, body: &[u8]) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key");
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
+        return "sha256=".to_owned();
+    };
     mac.update(timestamp.as_bytes());
     mac.update(b".");
     mac.update(body);
