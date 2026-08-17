@@ -10,18 +10,22 @@ pub const PLUGIN_API_VERSION: u32 = 1;
 pub const PLUGIN_CATEGORY_SCRAPER: &str = "SCRAPER";
 pub const PLUGIN_CATEGORY_MEDIA: &str = "MEDIA";
 pub const PLUGIN_CATEGORY_NETWORK: &str = "NETWORK";
+pub const PLUGIN_CATEGORY_NOTIFICATION: &str = "NOTIFICATION";
 pub const PLUGIN_TYPE_MEDIA_PROBE: &str = "media_probe";
 pub const PLUGIN_TYPE_IP_LOCATION: &str = "ip_location";
 pub const PLUGIN_TYPE_STRM_RESOLVER: &str = "strm_resolver";
 pub const PLUGIN_TYPE_CHAPTER_DETECTOR: &str = "chapter_detector";
+pub const PLUGIN_TYPE_NOTIFICATION: &str = "notification";
 pub const MEDIA_PROBE_CAPABILITY: &str = "media.probe";
 pub const IP_LOCATION_CAPABILITY: &str = "ip.location";
 pub const STRM_RESOLVE_CAPABILITY: &str = "strm.resolve";
 pub const CHAPTER_DETECT_CAPABILITY: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_CAPABILITY: &str = "chapters.lookup";
+pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
+pub const NOTIFICATION_SEND_METHOD: &str = "notification.send";
 pub const CHAPTER_FINGERPRINT_SAMPLE_RATE: u32 = 11_025;
 pub const CHAPTER_FINGERPRINT_POINT_DURATION_TICKS: i64 = 1_238_095;
 pub const CONFIG_OPTIONS_SOURCE_MEDIA_LIBRARIES: &str = "media-libraries";
@@ -143,6 +147,22 @@ impl PluginManifest {
                     return Err(PluginManifestError::Invalid(
                         "chapter detector plugins must declare chapters.detect or chapters.lookup"
                             .to_owned(),
+                    ));
+                }
+            }
+            PLUGIN_TYPE_NOTIFICATION => {
+                if self.category != PLUGIN_CATEGORY_NOTIFICATION {
+                    return Err(PluginManifestError::Invalid(
+                        "notification plugins must use the NOTIFICATION category".to_owned(),
+                    ));
+                }
+                if !self
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == NOTIFICATION_SEND_CAPABILITY)
+                {
+                    return Err(PluginManifestError::Invalid(
+                        "notification plugins must declare notification.send".to_owned(),
                     ));
                 }
             }
@@ -413,6 +433,36 @@ pub struct PluginResponse {
 pub struct PluginRpcError {
     pub code: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotificationSendRpcRequest {
+    pub event: Value,
+    pub target: Value,
+    pub config: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NotificationSendStatus {
+    Delivered,
+    Retryable,
+    Failed,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotificationSendRpcResult {
+    pub status: NotificationSendStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
