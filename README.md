@@ -34,3 +34,12 @@ Emby-compatible chapter output.
 and optional runtime. It receives no media path, URL, audio fingerprint, or task object, and never runs
 ffmpeg or ffprobe. Empty upstream results preserve existing chapters. Its exact boundary and configuration
 are documented in `README-theintrodb.md`.
+
+## Webhook 通知器
+
+`org.lux.webhook` implements the Lux v1 `notification.send` contract. Lux supplies the
+provider-neutral event, target URL, private-network approval and one-time request secret; the
+plugin validates the destination again, resolves all DNS addresses, blocks redirects and sends
+an HMAC-SHA256 signed JSON request. Its `payloadFormat` setting selects the Lux native payload
+or the limited Emby-style adapter. Delivery queues, retry scheduling and secret storage remain
+owned by Lux, so this plugin has no access to the Lux configuration directory or database.
