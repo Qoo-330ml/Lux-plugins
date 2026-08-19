@@ -116,6 +116,8 @@ pub struct TmdbSettings {
     pub preferred_language: String,
     #[serde(default)]
     pub language_fallback_enabled: bool,
+    #[serde(default)]
+    pub title_alias_replacement_enabled: bool,
     #[serde(default = "default_fallback_languages")]
     pub fallback_languages: Vec<String>,
     #[serde(default)]
@@ -129,6 +131,7 @@ impl Default for TmdbSettings {
         Self {
             preferred_language: default_preferred_language(),
             language_fallback_enabled: false,
+            title_alias_replacement_enabled: false,
             fallback_languages: default_fallback_languages(),
             alternate_api_enabled: false,
             api_base_url: default_api_base_url(),
@@ -158,9 +161,28 @@ impl TmdbSettings {
         alternate_api_enabled: bool,
         api_base_url: String,
     ) -> Result<Self, TmdbSettingsError> {
+        Self::new_with_api_and_title_alias_config(
+            preferred_language,
+            language_fallback_enabled,
+            false,
+            fallback_languages,
+            alternate_api_enabled,
+            api_base_url,
+        )
+    }
+
+    pub fn new_with_api_and_title_alias_config(
+        preferred_language: String,
+        language_fallback_enabled: bool,
+        title_alias_replacement_enabled: bool,
+        fallback_languages: Vec<String>,
+        alternate_api_enabled: bool,
+        api_base_url: String,
+    ) -> Result<Self, TmdbSettingsError> {
         let settings = Self {
             preferred_language: preferred_language.trim().to_owned(),
             language_fallback_enabled,
+            title_alias_replacement_enabled,
             fallback_languages,
             alternate_api_enabled,
             api_base_url: api_base_url.trim().to_owned(),
@@ -386,4 +408,30 @@ async fn write_secret_file(
     })
     .await
     .map_err(|error| std::io::Error::other(error.to_string()))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_alias_replacement_defaults_off_and_round_trips() {
+        let defaults = TmdbSettings::default();
+        assert!(!defaults.title_alias_replacement_enabled);
+
+        let settings = TmdbSettings::new_with_api_and_title_alias_config(
+            "zh-CN".to_owned(),
+            false,
+            true,
+            Vec::new(),
+            false,
+            TMDB_DEFAULT_API_BASE_URL.to_owned(),
+        )
+        .expect("title alias setting should be valid");
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let restored: TmdbSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+
+        assert!(restored.title_alias_replacement_enabled);
+    }
 }

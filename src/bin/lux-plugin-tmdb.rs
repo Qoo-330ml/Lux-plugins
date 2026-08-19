@@ -11,10 +11,11 @@ use luxd::application::{
     plugin_protocol::{PluginRequest, PluginResponse, PluginRpcError},
     settings::{TmdbSettings, read_tmdb_api_key, read_tmdb_settings, read_tmdb_token},
     tmdb::{
-        TmdbClient, TmdbCollectionDetails, TmdbCollectionSearchResponse, TmdbEpisodeDetails,
-        TmdbExternalIds, TmdbImagesResponse, TmdbMovieDetails, TmdbMovieSearchResponse,
-        TmdbPersonDetails, TmdbPersonSearchResponse, TmdbSeasonDetails, TmdbSeriesDetails,
-        TmdbTvSearchResponse, TmdbVideosResponse, fill_if_empty,
+        TmdbAlternativeTitlesResponse, TmdbClient, TmdbCollectionDetails,
+        TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImagesResponse,
+        TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails, TmdbPersonSearchResponse,
+        TmdbSeasonDetails, TmdbSeriesDetails, TmdbTvSearchResponse, TmdbVideosResponse,
+        fill_if_empty,
     },
 };
 use serde::Deserialize;
@@ -304,7 +305,7 @@ async fn search_movies(
                 .search_movies(&candidate, search_year, language)
                 .await?;
             if !response.results.is_empty() {
-                return Ok(response);
+                return Ok(apply_movie_title_aliases(response, client, language).await);
             }
             last_response = Some(response);
         }
@@ -325,7 +326,7 @@ async fn search_tv(
         for candidate in title_candidates(query) {
             let response = client.search_tv(&candidate, search_year, language).await?;
             if !response.results.is_empty() {
-                return Ok(response);
+                return Ok(apply_series_title_aliases(response, client, language).await);
             }
             last_response = Some(response);
         }
@@ -346,6 +347,48 @@ fn search_years(year: Option<i32>) -> Vec<Option<i32>> {
 
 async fn configured_language() -> String {
     settings().await.preferred_language.clone()
+}
+
+async fn title_alias_replacement_enabled(language: &str) -> bool {
+    settings().await.title_alias_replacement_enabled && language.starts_with("zh")
+}
+
+async fn apply_movie_title_aliases(
+    mut response: TmdbMovieSearchResponse,
+    client: &TmdbClient,
+    language: &str,
+) -> TmdbMovieSearchResponse {
+    if !title_alias_replacement_enabled(language).await {
+        return response;
+    }
+    for result in &mut response.results {
+        if result.title.as_deref().is_some_and(contains_chinese) {
+            continue;
+        }
+        if let Ok(aliases) = client.movie_alternative_titles(result.id).await {
+            replace_title_with_chinese_alias(&mut result.title, &aliases);
+        }
+    }
+    response
+}
+
+async fn apply_series_title_aliases(
+    mut response: TmdbTvSearchResponse,
+    client: &TmdbClient,
+    language: &str,
+) -> TmdbTvSearchResponse {
+    if !title_alias_replacement_enabled(language).await {
+        return response;
+    }
+    for result in &mut response.results {
+        if result.name.as_deref().is_some_and(contains_chinese) {
+            continue;
+        }
+        if let Ok(aliases) = client.tv_alternative_titles(result.id).await {
+            replace_title_with_chinese_alias(&mut result.name, &aliases);
+        }
+    }
+    response
 }
 
 async fn metadata_languages() -> Vec<String> {
@@ -395,6 +438,11 @@ async fn localized_movie_details(
             .certification(preferred_region)
             .map(str::to_owned);
     }
+    if title_alias_replacement_enabled(&languages[0]).await {
+        if let Ok(aliases) = client.movie_alternative_titles(movie_id).await {
+            replace_title_with_chinese_alias(&mut details.title, &aliases);
+        }
+    }
     Ok(details)
 }
 
@@ -418,6 +466,11 @@ async fn localized_series_details(
         fill_if_empty(&mut details.original_language, &fallback.original_language);
         fill_if_empty(&mut details.poster_path, &fallback.poster_path);
         fill_if_empty(&mut details.backdrop_path, &fallback.backdrop_path);
+    }
+    if title_alias_replacement_enabled(&languages[0]).await {
+        if let Ok(aliases) = client.tv_alternative_titles(series_id).await {
+            replace_title_with_chinese_alias(&mut details.name, &aliases);
+        }
     }
     Ok(details)
 }
@@ -722,6 +775,37 @@ fn config_dir() -> PathBuf {
     env::var_os("LUX_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("./config"))
+}
+
+fn first_chinese_alias(response: &TmdbAlternativeTitlesResponse) -> Option<String> {
+    response
+        .results
+        .iter()
+        .filter(|alias| alias.iso_3166_1.as_deref() == Some("CN"))
+        .filter_map(|alias| alias.title.as_deref())
+        .map(str::trim)
+        .find(|title| !title.is_empty() && contains_chinese(title))
+        .map(str::to_owned)
+}
+
+fn replace_title_with_chinese_alias(
+    title: &mut Option<String>,
+    response: &TmdbAlternativeTitlesResponse,
+) {
+    if title.as_deref().is_some_and(contains_chinese) {
+        return;
+    }
+    if let Some(alias) = first_chinese_alias(response) {
+        *title = Some(alias);
+    }
+}
+
+fn contains_chinese(value: &str) -> bool {
+    value.chars().any(|character| {
+        ('\u{3400}'..='\u{4dbf}').contains(&character)
+            || ('\u{4e00}'..='\u{9fff}').contains(&character)
+            || ('\u{f900}'..='\u{faff}').contains(&character)
+    })
 }
 
 fn movie_search_results(response: TmdbMovieSearchResponse) -> Vec<Value> {
@@ -1095,6 +1179,8 @@ fn tmdb_error(error: luxd::application::tmdb::TmdbError) -> PluginRpcError {
 
 #[cfg(test)]
 mod tests {
+    use luxd::application::tmdb::TmdbAlternativeTitle;
+
     use super::*;
 
     #[test]
@@ -1109,5 +1195,48 @@ mod tests {
         let completed = completed_search(Some(response)).expect("empty response");
 
         assert!(completed.results.is_empty());
+    }
+
+    #[test]
+    fn selects_the_first_valid_chinese_alias() {
+        let aliases = TmdbAlternativeTitlesResponse {
+            id: 219971,
+            results: vec![
+                TmdbAlternativeTitle {
+                    iso_3166_1: Some("US".to_owned()),
+                    title: Some("The Agency".to_owned()),
+                    title_type: None,
+                },
+                TmdbAlternativeTitle {
+                    iso_3166_1: Some("CN".to_owned()),
+                    title: Some("传奇办公室".to_owned()),
+                    title_type: None,
+                },
+                TmdbAlternativeTitle {
+                    iso_3166_1: Some("CN".to_owned()),
+                    title: Some("传奇办公室：中央情报".to_owned()),
+                    title_type: None,
+                },
+            ],
+        };
+
+        assert_eq!(first_chinese_alias(&aliases).as_deref(), Some("传奇办公室"));
+    }
+
+    #[test]
+    fn chinese_alias_does_not_replace_an_existing_chinese_title() {
+        let aliases = TmdbAlternativeTitlesResponse {
+            id: 219971,
+            results: vec![TmdbAlternativeTitle {
+                iso_3166_1: Some("CN".to_owned()),
+                title: Some("传奇办公室".to_owned()),
+                title_type: None,
+            }],
+        };
+        let mut title = Some("中文标题".to_owned());
+
+        replace_title_with_chinese_alias(&mut title, &aliases);
+
+        assert_eq!(title.as_deref(), Some("中文标题"));
     }
 }

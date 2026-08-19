@@ -17,6 +17,13 @@
     "required": false,
     "sensitive": true,
     "description": "可选。留空时使用 TMDb 插件自己的默认凭据。"
+  }, {
+    "key": "titleAliasReplacementEnabled",
+    "label": "标题别名替换",
+    "type": "toggle",
+    "required": false,
+    "sensitive": false,
+    "description": "当tmdb语言检索不到中文名称时，尝试使用中文别名替换"
   }],
   "permissions": {"network": ["api.themoviedb.org", "api.tmdb.org", "image.tmdb.org"], "filesystem": ["plugin-cache"]},
   "files": []
