@@ -277,6 +277,13 @@ impl TmdbClient {
         Ok(details)
     }
 
+    pub async fn movie_alternative_titles(
+        &self,
+        movie_id: i64,
+    ) -> Result<TmdbAlternativeTitlesResponse, TmdbError> {
+        self.alternative_titles("movie", movie_id).await
+    }
+
     pub async fn search_tv(
         &self,
         query: &str,
@@ -399,6 +406,13 @@ impl TmdbClient {
         Ok(details)
     }
 
+    pub async fn tv_alternative_titles(
+        &self,
+        series_id: i64,
+    ) -> Result<TmdbAlternativeTitlesResponse, TmdbError> {
+        self.alternative_titles("tv", series_id).await
+    }
+
     pub async fn season_details(
         &self,
         series_id: i64,
@@ -489,6 +503,24 @@ impl TmdbClient {
             .request_json(&endpoint, &[] as &[(String, String)])
             .await?;
         Ok(ids)
+    }
+
+    async fn alternative_titles(
+        &self,
+        item_type: &str,
+        item_id: i64,
+    ) -> Result<TmdbAlternativeTitlesResponse, TmdbError> {
+        validate_id(item_id, item_type)?;
+        let endpoint = format!("3/{item_type}/{item_id}/alternative_titles");
+        let response: TmdbAlternativeTitlesResponse = self
+            .request_json(&endpoint, &[] as &[(String, String)])
+            .await?;
+        if response.id != item_id {
+            return Err(TmdbError::InvalidResponse(
+                "TMDb alternative titles ID is invalid".to_owned(),
+            ));
+        }
+        Ok(response)
     }
 
     pub async fn movie_images(
@@ -900,6 +932,21 @@ pub struct TmdbMovieDetails {
     #[serde(skip)]
     pub certification: Option<String>,
     pub belongs_to_collection: Option<TmdbCollectionReference>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbAlternativeTitlesResponse {
+    pub id: i64,
+    #[serde(default)]
+    pub results: Vec<TmdbAlternativeTitle>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbAlternativeTitle {
+    pub iso_3166_1: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "type")]
+    pub title_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1331,3 +1378,61 @@ impl fmt::Display for TmdbError {
 }
 
 impl std::error::Error for TmdbError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn alternative_titles_use_the_tv_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener should bind");
+        let address = listener.local_addr().expect("test listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("test request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 2048];
+            loop {
+                let bytes = stream.read(&mut buffer).await.expect("read request");
+                if bytes == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
+            assert!(request.starts_with("GET /3/tv/219971/alternative_titles?"));
+            let body =
+                r#"{"id":219971,"results":[{"iso_3166_1":"CN","title":"传奇办公室","type":""}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+
+        let client = TmdbClient::new(TmdbClientConfig {
+            base_url: format!("http://{address}"),
+            api_key: Some("test-key".to_owned()),
+            max_retries: 0,
+            ..TmdbClientConfig::default()
+        })
+        .expect("test client should build");
+        let response = client
+            .tv_alternative_titles(219971)
+            .await
+            .expect("alternative titles should decode");
+
+        assert_eq!(response.results[0].title.as_deref(), Some("传奇办公室"));
+        server.await.expect("test server should finish");
+    }
+}
