@@ -531,6 +531,19 @@ impl TmdbClient {
         self.images("movie", movie_id, language).await
     }
 
+    pub async fn movie_images_for_request(
+        &self,
+        movie_id: i64,
+        language: &str,
+        all_languages: bool,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        if all_languages {
+            self.images_all_languages("movie", movie_id).await
+        } else {
+            self.movie_images(movie_id, language).await
+        }
+    }
+
     pub async fn movie_credits(
         &self,
         movie_id: i64,
@@ -565,6 +578,19 @@ impl TmdbClient {
         self.images("tv", series_id, language).await
     }
 
+    pub async fn tv_images_for_request(
+        &self,
+        series_id: i64,
+        language: &str,
+        all_languages: bool,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        if all_languages {
+            self.images_all_languages("tv", series_id).await
+        } else {
+            self.tv_images(series_id, language).await
+        }
+    }
+
     pub async fn season_images(
         &self,
         series_id: i64,
@@ -586,6 +612,21 @@ impl TmdbClient {
             ),
         ];
         self.request_json(&endpoint, &params).await
+    }
+
+    pub async fn season_images_for_request(
+        &self,
+        series_id: i64,
+        season_number: i32,
+        language: &str,
+        all_languages: bool,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        if all_languages {
+            self.season_images_all_languages(series_id, season_number)
+                .await
+        } else {
+            self.season_images(series_id, season_number, language).await
+        }
     }
 
     pub async fn episode_images(
@@ -613,6 +654,23 @@ impl TmdbClient {
         self.request_json(&endpoint, &params).await
     }
 
+    pub async fn episode_images_for_request(
+        &self,
+        series_id: i64,
+        season_number: i32,
+        episode_number: i32,
+        language: &str,
+        all_languages: bool,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        if all_languages {
+            self.episode_images_all_languages(series_id, season_number, episode_number)
+                .await
+        } else {
+            self.episode_images(series_id, season_number, episode_number, language)
+                .await
+        }
+    }
+
     pub async fn person_images(
         &self,
         person_id: i64,
@@ -637,6 +695,51 @@ impl TmdbClient {
             ),
         ];
         self.request_json(&endpoint, &params).await
+    }
+
+    async fn images_all_languages(
+        &self,
+        item_type: &str,
+        item_id: i64,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        validate_id(item_id, item_type)?;
+        let endpoint = format!("3/{item_type}/{item_id}/images");
+        self.request_json(&endpoint, &[] as &[(String, String)])
+            .await
+    }
+
+    async fn season_images_all_languages(
+        &self,
+        series_id: i64,
+        season_number: i32,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        validate_id(series_id, "series")?;
+        if !(-1..=1000).contains(&season_number) {
+            return Err(TmdbError::InvalidRequest(
+                "season number is out of range".to_owned(),
+            ));
+        }
+        let endpoint = format!("3/tv/{series_id}/season/{season_number}/images");
+        self.request_json(&endpoint, &[] as &[(String, String)])
+            .await
+    }
+
+    async fn episode_images_all_languages(
+        &self,
+        series_id: i64,
+        season_number: i32,
+        episode_number: i32,
+    ) -> Result<TmdbImagesResponse, TmdbError> {
+        validate_id(series_id, "series")?;
+        if !(-1..=1000).contains(&season_number) || !(0..=10000).contains(&episode_number) {
+            return Err(TmdbError::InvalidRequest(
+                "episode number is out of range".to_owned(),
+            ));
+        }
+        let endpoint =
+            format!("3/tv/{series_id}/season/{season_number}/episode/{episode_number}/images");
+        self.request_json(&endpoint, &[] as &[(String, String)])
+            .await
     }
 
     pub async fn movie_videos(

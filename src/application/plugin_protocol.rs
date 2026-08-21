@@ -11,21 +11,29 @@ pub const PLUGIN_CATEGORY_SCRAPER: &str = "SCRAPER";
 pub const PLUGIN_CATEGORY_MEDIA: &str = "MEDIA";
 pub const PLUGIN_CATEGORY_NETWORK: &str = "NETWORK";
 pub const PLUGIN_CATEGORY_NOTIFICATION: &str = "NOTIFICATION";
+pub const PLUGIN_CATEGORY_MIGRATION: &str = "MIGRATION";
 pub const PLUGIN_TYPE_MEDIA_PROBE: &str = "media_probe";
 pub const PLUGIN_TYPE_IP_LOCATION: &str = "ip_location";
 pub const PLUGIN_TYPE_STRM_RESOLVER: &str = "strm_resolver";
 pub const PLUGIN_TYPE_CHAPTER_DETECTOR: &str = "chapter_detector";
 pub const PLUGIN_TYPE_NOTIFICATION: &str = "notification";
+pub const PLUGIN_TYPE_DATA_MIGRATION: &str = "data_migration";
 pub const MEDIA_PROBE_CAPABILITY: &str = "media.probe";
 pub const IP_LOCATION_CAPABILITY: &str = "ip.location";
 pub const STRM_RESOLVE_CAPABILITY: &str = "strm.resolve";
 pub const CHAPTER_DETECT_CAPABILITY: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_CAPABILITY: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
+pub const EMBY_MIGRATION_CAPABILITY: &str = "migration.emby";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_METHOD: &str = "notification.send";
+pub const MIGRATION_TEST_METHOD: &str = "migration.test";
+pub const MIGRATION_LIST_USERS_METHOD: &str = "migration.list_users";
+pub const MIGRATION_LIST_ITEMS_METHOD: &str = "migration.list_items";
+pub const MIGRATION_USER_STATE_METHOD: &str = "migration.user_state";
+pub const MIGRATION_AUTHENTICATE_USER_METHOD: &str = "migration.authenticate_user";
 pub const CHAPTER_FINGERPRINT_SAMPLE_RATE: u32 = 11_025;
 pub const CHAPTER_FINGERPRINT_POINT_DURATION_TICKS: i64 = 1_238_095;
 pub const CONFIG_OPTIONS_SOURCE_MEDIA_LIBRARIES: &str = "media-libraries";
@@ -163,6 +171,22 @@ impl PluginManifest {
                 {
                     return Err(PluginManifestError::Invalid(
                         "notification plugins must declare notification.send".to_owned(),
+                    ));
+                }
+            }
+            PLUGIN_TYPE_DATA_MIGRATION => {
+                if self.category != PLUGIN_CATEGORY_MIGRATION {
+                    return Err(PluginManifestError::Invalid(
+                        "data migration plugins must use the MIGRATION category".to_owned(),
+                    ));
+                }
+                if !self
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == EMBY_MIGRATION_CAPABILITY)
+                {
+                    return Err(PluginManifestError::Invalid(
+                        "data migration plugins must declare migration.emby".to_owned(),
                     ));
                 }
             }

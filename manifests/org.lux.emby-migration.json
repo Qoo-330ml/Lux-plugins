@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.emby-migration",
+  "name": "Emby 迁移助手",
+  "description": "从 Emby 迁移用户资料、媒体状态、播放位置、次数、最近播放时间和收藏；仅支持 Emby 到 Lux。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "data_migration",
+  "category": "MIGRATION",
+  "supportedItemTypes": ["Movie", "Series", "Season", "Episode"],
+  "capabilities": ["migration.emby"],
+  "permissions": {"network": ["user-configured-emby"], "filesystem": []},
+  "files": []
+}
