@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::lookup_host;
 
-use crate::{application::plugin_protocol::PluginRpcError, network::client_builder_from_env};
+use crate::{
+    application::plugin_protocol::PluginRpcError,
+    network::{client_builder_from_env, is_public_address},
+};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -795,20 +798,21 @@ pub fn validate_emby_base_url(
 }
 
 fn is_private_or_reserved(address: IpAddr) -> bool {
+    if !is_public_address(address) {
+        return true;
+    }
     match address {
         IpAddr::V4(value) => {
-            value.is_private()
-                || value.is_loopback()
-                || value.is_link_local()
-                || value.is_unspecified()
-                || value.is_multicast()
+            let octets = value.octets();
+            matches!(
+                (octets[0], octets[1], octets[2]),
+                (192, 0, _) | (198, 18, _) | (198, 19, _) | (198, 51, 100) | (203, 0, 113)
+            ) || octets[0] >= 240
         }
         IpAddr::V6(value) => {
-            value.is_loopback()
-                || value.is_unspecified()
-                || value.is_multicast()
-                || value.is_unicast_link_local()
-                || (value.octets()[0] & 0xfe) == 0xfc
+            let octets = value.octets();
+            (octets[0] & 0xfe) == 0xfc
+                || (octets[0] == 0x20 && octets[1] == 0x01 && octets[2] == 0x0d)
         }
     }
 }
@@ -845,5 +849,15 @@ mod tests {
             Err(MigrationInputError::PrivateNetworkNotAllowed)
         );
         assert!(validate_emby_base_url("http://192.168.1.20:8096", true).is_ok());
+    }
+
+    #[test]
+    fn rejects_shared_and_reserved_address_ranges_without_approval() {
+        for host in ["100.64.0.1", "198.18.0.1", "0.0.0.0"] {
+            assert_eq!(
+                validate_emby_base_url(&format!("http://{host}:8096"), false),
+                Err(MigrationInputError::PrivateNetworkNotAllowed)
+            );
+        }
     }
 }
