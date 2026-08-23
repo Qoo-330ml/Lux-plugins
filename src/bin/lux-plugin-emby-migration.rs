@@ -2,8 +2,8 @@ use luxd::application::{
     emby_migration,
     plugin_protocol::{
         EMBY_MIGRATION_CAPABILITY, MIGRATION_AUTHENTICATE_USER_METHOD, MIGRATION_LIST_ITEMS_METHOD,
-        MIGRATION_LIST_USERS_METHOD, MIGRATION_TEST_METHOD, MIGRATION_USER_STATE_METHOD,
-        PluginRequest, PluginResponse, PluginRpcError,
+        MIGRATION_LIST_USERS_METHOD, MIGRATION_PERSON_FAVORITES_METHOD, MIGRATION_TEST_METHOD,
+        MIGRATION_USER_STATE_METHOD, PluginRequest, PluginResponse, PluginRpcError,
     },
 };
 use serde_json::{Value, json};
@@ -56,7 +56,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "name": PLUGIN_NAME,
             "apiVersion": 1,
             "capabilities": [EMBY_MIGRATION_CAPABILITY],
-            "supportedItemTypes": ["Movie", "Series", "Season", "Episode"],
+            "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "Person"],
             "historyCapability": "ITEM_STATE"
         })),
         "plugin.health" => Ok(json!({
@@ -68,6 +68,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
         MIGRATION_LIST_USERS_METHOD => emby_migration::list_users(params).await,
         MIGRATION_LIST_ITEMS_METHOD => emby_migration::list_items(params).await,
         MIGRATION_USER_STATE_METHOD => emby_migration::user_state(params).await,
+        MIGRATION_PERSON_FAVORITES_METHOD => emby_migration::person_favorites(params).await,
         MIGRATION_AUTHENTICATE_USER_METHOD => emby_migration::authenticate_user(params).await,
         "plugin.shutdown" => Ok(json!({"accepted": true})),
         _ => Err(invalid_request()),
