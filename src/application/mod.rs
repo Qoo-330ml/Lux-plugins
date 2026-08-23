@@ -1,3 +1,4 @@
+pub mod danmaku;
 pub mod douban;
 pub mod emby_migration;
 pub mod media_matching;
