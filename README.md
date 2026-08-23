@@ -9,7 +9,7 @@ the Release URLs and SHA-256 digests. Lux validates the ZIP and its manifest bef
 into `/config/plugins`.
 
 The package asset name includes the plugin version and target architecture, for example
-`org.lux.tmdb-0.1.7-linux-x86_64.zip` and `org.lux.tmdb-0.1.7-linux-aarch64.zip`. The Lux host
+`org.lux.tmdb-0.1.8-linux-x86_64.zip` and `org.lux.tmdb-0.1.8-linux-aarch64.zip`. The Lux host
 selects the matching package from `packages` and stores it under its own canonical plugin ZIP
 name after downloading it.
 
