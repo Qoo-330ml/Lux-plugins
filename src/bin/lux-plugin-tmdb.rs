@@ -54,6 +54,8 @@ struct MetadataRequest {
     season_number: Option<i32>,
     #[serde(default)]
     episode_number: Option<i32>,
+    #[serde(default)]
+    language: Option<String>,
 }
 
 impl MetadataRequest {
@@ -652,16 +654,17 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
         .provider_id()
         .or(request.collection_id)
         .ok_or_else(|| invalid("providerId or collectionId is required"))?;
+    let all_languages = requests_all_image_languages(&request);
     let language = configured_language().await;
     let images = match request.item_type.as_deref().unwrap_or("Movie") {
         "Movie" => client()
             .await?
-            .movie_images(id, &language)
+            .movie_images_for_request(id, &language, all_languages)
             .await
             .map_err(tmdb_error)?,
         "Series" | "TvSeries" => client()
             .await?
-            .tv_images(id, &language)
+            .tv_images_for_request(id, &language, all_languages)
             .await
             .map_err(tmdb_error)?,
         "Person" => client()
@@ -675,7 +678,7 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
                 .ok_or_else(|| invalid("seasonNumber is required"))?;
             client()
                 .await?
-                .season_images(id, season_number, &language)
+                .season_images_for_request(id, season_number, &language, all_languages)
                 .await
                 .map_err(tmdb_error)?
         }
@@ -688,7 +691,13 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
                 .ok_or_else(|| invalid("episodeNumber is required"))?;
             client()
                 .await?
-                .episode_images(id, season_number, episode_number, &language)
+                .episode_images_for_request(
+                    id,
+                    season_number,
+                    episode_number,
+                    &language,
+                    all_languages,
+                )
                 .await
                 .map_err(tmdb_error)?
         }
@@ -1093,6 +1102,10 @@ fn image_results(response: TmdbImagesResponse) -> Vec<Value> {
     images
 }
 
+fn requests_all_image_languages(request: &MetadataRequest) -> bool {
+    request.language.as_deref() == Some("")
+}
+
 fn collection_image_results(details: TmdbCollectionDetails) -> Vec<Value> {
     let mut images = Vec::new();
     if let Some(path) = details.poster_path {
@@ -1238,5 +1251,30 @@ mod tests {
         replace_title_with_chinese_alias(&mut title, &aliases);
 
         assert_eq!(title.as_deref(), Some("中文标题"));
+    }
+
+    #[test]
+    fn empty_image_language_requests_all_languages_without_changing_batch_defaults() {
+        let manual = parse_request(json!({
+            "itemType": "Movie",
+            "providerId": "7",
+            "language": ""
+        }))
+        .expect("manual image request should parse");
+        let batch = parse_request(json!({
+            "itemType": "Movie",
+            "providerId": "7",
+            "language": "zh-CN"
+        }))
+        .expect("batch image request should parse");
+        let legacy = parse_request(json!({
+            "itemType": "Movie",
+            "providerId": "7"
+        }))
+        .expect("legacy image request should parse");
+
+        assert!(requests_all_image_languages(&manual));
+        assert!(!requests_all_image_languages(&batch));
+        assert!(!requests_all_image_languages(&legacy));
     }
 }

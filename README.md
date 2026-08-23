@@ -15,6 +15,14 @@ name after downloading it.
 
 Do not commit credentials, local configuration, media data, or unreviewed executable packages.
 
+## Emby 迁移助手
+
+`org.lux.emby-migration` implements the one-way Lux migration contract. It connects to an administrator-approved
+Emby base URL using a request-scoped API key, returns bounded user and item-state pages, and performs one-time
+user-password verification for accounts created by Lux. It never reads an Emby database, returns an Emby access token,
+or implements reverse migration. The current plugin reports `ITEM_STATE`; it does not synthesize a playback history
+timeline from aggregate UserData.
+
 ## Intro/outro detector
 
 `org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only
