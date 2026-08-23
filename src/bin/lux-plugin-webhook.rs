@@ -204,14 +204,14 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
             payload.insert(key.to_owned(), value.clone());
         }
         for (key, value) in data {
-            if event_field_allowed(event_type, key) {
+            if event_field_allowed(&event_type, key) {
                 payload.insert(key.clone(), value.clone());
             }
         }
         return Ok(Value::Object(payload));
     }
     let mut payload = Map::from_iter([
-        ("Event".to_owned(), json!(emby_event_name(event_type))),
+        ("Event".to_owned(), json!(emby_event_name(&event_type))),
         (
             "EventId".to_owned(),
             object.get("eventId").cloned().ok_or_else(invalid_request)?,
@@ -248,7 +248,7 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
     for (source, target, is_item) in mappings {
         if let Some(value) = data
             .get(source)
-            .filter(|_| event_field_allowed(event_type, source))
+            .filter(|_| event_field_allowed(&event_type, source))
         {
             if is_item {
                 payload.insert(target.to_owned(), json!({"Id": value}));

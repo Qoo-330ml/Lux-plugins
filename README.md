@@ -26,6 +26,23 @@ user-password verification for accounts created by Lux. It never reads an Emby d
 or implements reverse migration. The current plugin reports `ITEM_STATE`; it does not synthesize a playback history
 timeline from aggregate UserData.
 
+## Douban metadata
+
+`org.lux.douban` implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
+Series search, metadata, poster images, cast/director credits, the Douban provider ID, and
+available trailers. Season metadata is supported when the upstream subject represents a season;
+episode, person, and collection metadata are reported as unsupported because the referenced
+Douban mobile API does not expose a stable equivalent.
+
+Search uses Douban's public subject-suggest endpoint. Details and richer metadata use the
+WeChat-compatible client with the public client credential shipped by the upstream Jellyfin
+Douban plugin. No credential configuration is required; the plugin is usable immediately after
+installation. The optional `requestIntervalMs` setting only tunes request pacing. For private
+testing or a future credential rotation, environment variables can override the built-in client
+key without changing the package. Credentials are never included in RPC results or logs. The
+plugin applies a bounded response size, HTTPS endpoint validation, rate limiting, retries for
+timeouts/429/5xx, and a short-lived bounded response cache.
+
 ## Intro/outro detector
 
 `org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only
