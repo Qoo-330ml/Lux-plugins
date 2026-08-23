@@ -141,33 +141,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let output = Arc::new(Mutex::new(BufWriter::new(tokio::io::stdout())));
     let permits = Arc::new(Semaphore::new(MAX_RPC_CONCURRENCY));
     let mut tasks: JoinSet<Result<(), Box<dyn std::error::Error + Send + Sync>>> = JoinSet::new();
+    let mut stdin_closed = false;
 
-    while let Some(line) = lines.next_line().await? {
-        let permit = permits.clone().acquire_owned().await?;
-        let output = output.clone();
-        tasks.spawn(async move {
-            let _permit = permit;
-            let response = match serde_json::from_str::<PluginRequest>(&line) {
-                Ok(request) => handle_request(request).await,
-                Err(error) => PluginResponse {
-                    id: "invalid-request".to_owned(),
-                    result: None,
-                    error: Some(PluginRpcError {
-                        code: "PLUGIN_INVALID_REQUEST".to_owned(),
-                        message: error.to_string(),
-                    }),
-                },
-            };
-            let mut serialized = serde_json::to_vec(&response)?;
-            serialized.push(b'\n');
-            let mut output = output.lock().await;
-            output.write_all(&serialized).await?;
-            output.flush().await?;
-            Ok(())
-        });
-    }
-    while let Some(result) = tasks.join_next().await {
-        result??;
+    loop {
+        if stdin_closed && tasks.is_empty() {
+            break;
+        }
+        tokio::select! {
+            biased;
+            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                result??;
+            }
+            line = lines.next_line(), if !stdin_closed => {
+                let Some(line) = line? else {
+                    stdin_closed = true;
+                    continue;
+                };
+                let permit = permits.clone().acquire_owned().await?;
+                let output = output.clone();
+                tasks.spawn(async move {
+                    let _permit = permit;
+                    let response = match serde_json::from_str::<PluginRequest>(&line) {
+                        Ok(request) => handle_request(request).await,
+                        Err(error) => PluginResponse {
+                            id: "invalid-request".to_owned(),
+                            result: None,
+                            error: Some(PluginRpcError {
+                                code: "PLUGIN_INVALID_REQUEST".to_owned(),
+                                message: error.to_string(),
+                            }),
+                        },
+                    };
+                    let mut serialized = serde_json::to_vec(&response)?;
+                    serialized.push(b'\n');
+                    let mut output = output.lock().await;
+                    output.write_all(&serialized).await?;
+                    output.flush().await?;
+                    Ok(())
+                });
+            }
+        }
     }
     Ok(())
 }
