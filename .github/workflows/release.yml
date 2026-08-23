@@ -53,7 +53,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish release and catalog
+    name: Publish per-plugin releases and catalog
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -71,21 +71,18 @@ jobs:
         with:
           name: packages-aarch64
           path: artifacts/aarch64
-      - name: Create release and upload assets
+      - name: Publish one release per plugin
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="build-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" artifacts/x86_64/*.zip artifacts/aarch64/*.zip \
-            --target "$GITHUB_SHA" \
-            --title "Lux plugins $tag" \
-            --notes "Automated plugin packages for commit $GITHUB_SHA."
-          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          python3 scripts/publish-releases.py \
+            --artifacts artifacts \
+            --repository "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA"
       - name: Generate release-backed catalog
         run: |
           python3 scripts/generate-index.py \
             --artifacts artifacts \
-            --release-tag "$RELEASE_TAG" \
             --repository "$GITHUB_REPOSITORY" \
             --output index.json
       - name: Commit catalog
@@ -95,5 +92,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.json
-          git diff --cached --quiet || git commit -m "chore: update plugin catalog for $RELEASE_TAG"
+          git diff --cached --quiet || git commit -m "chore: update plugin catalog for per-plugin releases"
           git push origin HEAD:main
