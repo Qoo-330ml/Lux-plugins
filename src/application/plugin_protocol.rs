@@ -18,17 +18,20 @@ pub const PLUGIN_TYPE_STRM_RESOLVER: &str = "strm_resolver";
 pub const PLUGIN_TYPE_CHAPTER_DETECTOR: &str = "chapter_detector";
 pub const PLUGIN_TYPE_NOTIFICATION: &str = "notification";
 pub const PLUGIN_TYPE_DATA_MIGRATION: &str = "data_migration";
+pub const PLUGIN_TYPE_DANMAKU: &str = "danmaku";
 pub const MEDIA_PROBE_CAPABILITY: &str = "media.probe";
 pub const IP_LOCATION_CAPABILITY: &str = "ip.location";
 pub const STRM_RESOLVE_CAPABILITY: &str = "strm.resolve";
 pub const CHAPTER_DETECT_CAPABILITY: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_CAPABILITY: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
+pub const DANMAKU_MATCH_CAPABILITY: &str = "danmaku.match";
 pub const EMBY_MIGRATION_CAPABILITY: &str = "migration.emby";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_METHOD: &str = "notification.send";
+pub const DANMAKU_MATCH_METHOD: &str = "danmaku.match";
 pub const MIGRATION_TEST_METHOD: &str = "migration.test";
 pub const MIGRATION_LIST_USERS_METHOD: &str = "migration.list_users";
 pub const MIGRATION_LIST_ITEMS_METHOD: &str = "migration.list_items";
@@ -171,6 +174,22 @@ impl PluginManifest {
                 {
                     return Err(PluginManifestError::Invalid(
                         "notification plugins must declare notification.send".to_owned(),
+                    ));
+                }
+            }
+            PLUGIN_TYPE_DANMAKU => {
+                if self.category != PLUGIN_CATEGORY_MEDIA {
+                    return Err(PluginManifestError::Invalid(
+                        "danmaku plugins must use the MEDIA category".to_owned(),
+                    ));
+                }
+                if !self
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == DANMAKU_MATCH_CAPABILITY)
+                {
+                    return Err(PluginManifestError::Invalid(
+                        "danmaku plugins must declare danmaku.match".to_owned(),
                     ));
                 }
             }
@@ -457,6 +476,33 @@ pub struct PluginResponse {
 pub struct PluginRpcError {
     pub code: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuMatchRpcRequest {
+    pub file_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DanmakuMatchStatus {
+    Matched,
+    NoMatch,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuMatchRpcResult {
+    pub status: DanmakuMatchStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anime_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xml_base64: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
