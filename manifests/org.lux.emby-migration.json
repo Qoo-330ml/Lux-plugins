@@ -10,6 +10,11 @@
   "category": "MIGRATION",
   "supportedItemTypes": ["Movie", "Series", "Season", "Episode"],
   "capabilities": ["migration.emby"],
+  "configFields": [
+    {"key": "baseUrl", "label": "Emby 地址", "type": "text", "required": true, "sensitive": false, "description": "只填写 Emby 的 HTTP(S) 基础地址，不要包含凭据、查询参数或片段。"},
+    {"key": "apiKey", "label": "Emby API Key", "type": "password", "required": true, "sensitive": true, "description": "仅保存在 Lux 的插件配置中，用于迁移期间访问 Emby。"},
+    {"key": "allowPrivateNetwork", "label": "允许连接局域网地址", "type": "toggle", "required": false, "sensitive": false, "defaultValue": false, "description": "仅当 Emby 位于局域网或私有地址时开启。"}
+  ],
   "permissions": {"network": ["user-configured-emby"], "filesystem": []},
   "files": []
 }

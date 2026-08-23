@@ -20,8 +20,8 @@ Do not commit credentials, local configuration, media data, or unreviewed execut
 
 ## Emby 迁移助手
 
-`org.lux.emby-migration` implements the one-way Lux migration contract. It connects to an administrator-approved
-Emby base URL using a request-scoped API key, returns bounded user and item-state pages, and performs one-time
+`org.lux.emby-migration` implements the one-way Lux migration contract. Its Emby base URL, API key, and private-network
+approval are configured in Lux's plugin settings. It returns bounded user and item-state pages, and performs one-time
 user-password verification for accounts created by Lux. It never reads an Emby database, returns an Emby access token,
 or implements reverse migration. The current plugin reports `ITEM_STATE`; it does not synthesize a playback history
 timeline from aggregate UserData.
