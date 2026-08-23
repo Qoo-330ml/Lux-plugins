@@ -375,16 +375,21 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
 }
 
 pub async fn list_items(params: Value) -> Result<Value, PluginRpcError> {
-    list_items_internal(params, false).await
+    list_items_internal(params, false, false).await
 }
 
 pub async fn user_state(params: Value) -> Result<Value, PluginRpcError> {
-    list_items_internal(params, true).await
+    list_items_internal(params, true, false).await
+}
+
+pub async fn person_favorites(params: Value) -> Result<Value, PluginRpcError> {
+    list_items_internal(params, true, true).await
 }
 
 async fn list_items_internal(
     params: Value,
     include_user_data: bool,
+    person_favorites: bool,
 ) -> Result<Value, PluginRpcError> {
     let request: ItemPageRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let limit = request.limit.clamp(1, MAX_PAGE_SIZE);
@@ -394,32 +399,42 @@ async fn list_items_internal(
         .map_err(to_rpc_error)?;
     let path = format!("Users/{user_id}/Items");
     let fields = "ProviderIds,ParentId,SeriesId,SeasonId,IndexNumber,ParentIndexNumber,ProductionYear,UserData";
-    let raw: RawItemPage = client
-        .get_json(
-            &path,
-            &[
-                ("StartIndex", request.start_index.to_string()),
-                ("Limit", limit.to_string()),
-                ("Recursive", "true".to_owned()),
-                ("EnableUserData", include_user_data.to_string()),
-                ("Fields", fields.to_owned()),
-                ("IncludeItemTypes", "Movie,Series,Season,Episode".to_owned()),
-            ],
-        )
-        .await
-        .map_err(to_rpc_error)?;
+    let include_item_types = if person_favorites {
+        "Person"
+    } else {
+        "Movie,Series,Season,Episode"
+    };
+    let mut query = vec![
+        ("StartIndex", request.start_index.to_string()),
+        ("Limit", limit.to_string()),
+        ("Recursive", "true".to_owned()),
+        ("EnableUserData", include_user_data.to_string()),
+        ("Fields", fields.to_owned()),
+        ("IncludeItemTypes", include_item_types.to_owned()),
+    ];
+    if person_favorites {
+        query.push(("IsFavorite", "true".to_owned()));
+    }
+    let raw: RawItemPage = client.get_json(&path, &query).await.map_err(to_rpc_error)?;
     if raw.items.len() > MAX_ITEM_COUNT {
         return Err(invalid_response());
     }
     let mut items = Vec::with_capacity(raw.items.len());
     for item in raw.items {
-        if !matches!(
-            item.item_type.as_str(),
-            "Movie" | "Series" | "Season" | "Episode"
-        ) {
-            continue;
+        if person_favorites {
+            let Some(item) = map_person_favorite(item)? else {
+                continue;
+            };
+            items.push(item);
+        } else {
+            if !matches!(
+                item.item_type.as_str(),
+                "Movie" | "Series" | "Season" | "Episode"
+            ) {
+                continue;
+            }
+            items.push(map_item(item)?);
         }
-        items.push(map_item(item)?);
     }
     let start_index = raw.start_index.unwrap_or(request.start_index);
     let next_start_index = if items.len() as u32 >= limit {
@@ -540,6 +555,30 @@ fn map_item(item: RawItem) -> Result<MigratableItem, PluginRpcError> {
         parent_index_number: valid_nonnegative(item.parent_index_number)?,
         user_data,
     })
+}
+
+fn map_person_favorite(item: RawItem) -> Result<Option<MigratableItem>, PluginRpcError> {
+    if item.item_type != "Person" {
+        return Ok(None);
+    }
+    let mut mapped = map_item(item)?;
+    if mapped
+        .user_data
+        .as_ref()
+        .is_some_and(|user_data| !user_data.is_favorite)
+    {
+        return Ok(None);
+    }
+    if mapped.user_data.is_none() {
+        mapped.user_data = Some(MigratableUserData {
+            playback_position_ticks: 0,
+            played: false,
+            is_favorite: true,
+            play_count: 0,
+            last_played_date: None,
+        });
+    }
+    Ok(Some(mapped))
 }
 
 fn map_user_data(data: RawUserData) -> Result<MigratableUserData, PluginRpcError> {
@@ -751,6 +790,38 @@ mod response_tests {
             last_played_date: None,
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn person_favorite_mapping_keeps_identity_and_filters_non_people() {
+        let person: RawItem = serde_json::from_value(json!({
+            "Id": "person-1",
+            "Name": "演员甲",
+            "Type": "Person",
+            "ProviderIds": {"Tmdb": "12345"},
+            "UserData": {"IsFavorite": true}
+        }))
+        .expect("person fixture should parse");
+        let mapped = map_person_favorite(person)
+            .expect("person favorite should map")
+            .expect("person should be returned");
+        assert_eq!(mapped.id, "person-1");
+        assert_eq!(mapped.name, "演员甲");
+        assert_eq!(mapped.item_type, "Person");
+        assert_eq!(mapped.provider_ids.get("Tmdb"), Some(&"12345".to_owned()));
+        assert!(mapped.user_data.expect("favorite data").is_favorite);
+
+        let movie: RawItem = serde_json::from_value(json!({
+            "Id": "movie-1",
+            "Name": "电影",
+            "Type": "Movie"
+        }))
+        .expect("movie fixture should parse");
+        assert!(
+            map_person_favorite(movie)
+                .expect("non-person should be ignored")
+                .is_none()
+        );
     }
 }
 
