@@ -1107,6 +1107,21 @@ pub struct TmdbAlternativeTitle {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbAlternativeTitlesResponse {
+    pub id: i64,
+    #[serde(default)]
+    pub results: Vec<TmdbAlternativeTitle>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbAlternativeTitle {
+    pub iso_3166_1: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "type")]
+    pub title_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct TmdbNamedValue {
     pub id: i64,
     pub name: Option<String>,

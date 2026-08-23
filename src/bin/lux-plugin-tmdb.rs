@@ -1506,7 +1506,6 @@ mod tests {
 
         assert_eq!(title.as_deref(), Some("中文标题"));
     }
-
     #[test]
     fn empty_image_language_requests_all_languages_without_changing_batch_defaults() {
         let manual = parse_request(json!({
