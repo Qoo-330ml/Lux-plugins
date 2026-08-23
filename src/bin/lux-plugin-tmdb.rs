@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
     env,
-    io::{BufRead, Write},
     path::PathBuf,
+    sync::{Arc, Mutex as StdMutex, MutexGuard},
     time::{Duration, Instant},
 };
 
@@ -20,19 +20,83 @@ use luxd::application::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::sync::OnceCell;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
+    sync::{Mutex, Notify, OnceCell, Semaphore},
+    task::JoinSet,
+};
 
 static CLIENT: OnceCell<Result<TmdbClient, String>> = OnceCell::const_new();
 static SETTINGS: OnceCell<TmdbSettings> = OnceCell::const_new();
-static RESPONSE_CACHE: OnceCell<tokio::sync::Mutex<HashMap<String, CachedResponse>>> =
-    OnceCell::const_new();
+static RESPONSE_CACHE: OnceCell<Mutex<HashMap<String, CachedResponse>>> = OnceCell::const_new();
+static INFLIGHT: OnceCell<InflightMap> = OnceCell::const_new();
 const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CACHE_CAPACITY: usize = 256;
+const MAX_RPC_CONCURRENCY: usize = 16;
+
+type InflightMap = StdMutex<HashMap<String, Arc<Notify>>>;
+
+struct InflightOwner {
+    map: &'static InflightMap,
+    key: String,
+    notify: Arc<Notify>,
+    released: bool,
+}
+
+impl InflightOwner {
+    fn new(map: &'static InflightMap, key: String, notify: Arc<Notify>) -> Self {
+        Self {
+            map,
+            key,
+            notify,
+            released: false,
+        }
+    }
+
+    fn finish(mut self) {
+        self.release();
+    }
+
+    fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        let notify = {
+            let mut active = lock_inflight(self.map);
+            if active
+                .get(&self.key)
+                .is_some_and(|current| Arc::ptr_eq(current, &self.notify))
+            {
+                active.remove(&self.key)
+            } else {
+                None
+            }
+        };
+        if let Some(notify) = notify {
+            notify.notify_waiters();
+        }
+    }
+}
+
+impl Drop for InflightOwner {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+fn lock_inflight(map: &InflightMap) -> MutexGuard<'_, HashMap<String, Arc<Notify>>> {
+    match map.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 #[derive(Clone)]
 struct CachedResponse {
     created_at: Instant,
     value: Value,
+    negative: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,28 +140,50 @@ struct TmdbRawRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let lines = stdin.lock().lines();
-    let mut output = stdout.lock();
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let output = Arc::new(Mutex::new(BufWriter::new(tokio::io::stdout())));
+    let permits = Arc::new(Semaphore::new(MAX_RPC_CONCURRENCY));
+    let mut tasks: JoinSet<Result<(), Box<dyn std::error::Error + Send + Sync>>> = JoinSet::new();
+    let mut stdin_closed = false;
 
-    for line in lines {
-        let line = line?;
-        let response = match serde_json::from_str::<PluginRequest>(&line) {
-            Ok(request) => handle_request(request).await,
-            Err(error) => PluginResponse {
-                id: "invalid-request".to_owned(),
-                result: None,
-                error: Some(PluginRpcError {
-                    code: "PLUGIN_INVALID_REQUEST".to_owned(),
-                    message: error.to_string(),
-                }),
-            },
-        };
-        let mut serialized = serde_json::to_vec(&response)?;
-        serialized.push(b'\n');
-        output.write_all(&serialized)?;
-        output.flush()?;
+    loop {
+        if stdin_closed && tasks.is_empty() {
+            break;
+        }
+        tokio::select! {
+            biased;
+            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                result??;
+            }
+            line = lines.next_line(), if !stdin_closed => {
+                let Some(line) = line? else {
+                    stdin_closed = true;
+                    continue;
+                };
+                let permit = permits.clone().acquire_owned().await?;
+                let output = output.clone();
+                tasks.spawn(async move {
+                    let _permit = permit;
+                    let response = match serde_json::from_str::<PluginRequest>(&line) {
+                        Ok(request) => handle_request(request).await,
+                        Err(error) => PluginResponse {
+                            id: "invalid-request".to_owned(),
+                            result: None,
+                            error: Some(PluginRpcError {
+                                code: "PLUGIN_INVALID_REQUEST".to_owned(),
+                                message: error.to_string(),
+                            }),
+                        },
+                    };
+                    let mut serialized = serde_json::to_vec(&response)?;
+                    serialized.push(b'\n');
+                    let mut output = output.lock().await;
+                    output.write_all(&serialized).await?;
+                    output.flush().await?;
+                    Ok(())
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -127,6 +213,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "capabilities": [
                 "metadata.search",
                 "metadata.get",
+                "metadata.bundle",
                 "metadata.images",
                 "metadata.credits",
                 "metadata.externalIds",
@@ -140,6 +227,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
         }
         "metadata.search"
         | "metadata.get"
+        | "metadata.bundle"
         | "metadata.credits"
         | "metadata.externalIds"
         | "metadata.images"
@@ -181,49 +269,93 @@ async fn cached_metadata_call(method: &str, params: Value) -> Result<Value, Plug
         message: error.to_string(),
     })?;
     let cache = RESPONSE_CACHE
-        .get_or_init(|| async { tokio::sync::Mutex::new(HashMap::new()) })
+        .get_or_init(|| async { Mutex::new(HashMap::new()) })
         .await;
+    let inflight = INFLIGHT
+        .get_or_init(|| async { StdMutex::new(HashMap::new()) })
+        .await;
+    let owner = loop {
+        {
+            let mut entries = cache.lock().await;
+            if let Some(entry) = entries.get(&key) {
+                if entry.created_at.elapsed() < CACHE_TTL {
+                    if entry.negative {
+                        return Err(PluginRpcError {
+                            code: "PLUGIN_PROVIDER_NOT_FOUND".to_owned(),
+                            message: "cached TMDb resource was not found".to_owned(),
+                        });
+                    }
+                    return Ok(entry.value.clone());
+                }
+                entries.remove(&key);
+            }
+        }
+        let (waiter, owner_notify) = {
+            let mut active = lock_inflight(inflight);
+            if let Some(notify) = active.get(&key) {
+                let mut waiter = Box::pin(notify.clone().notified_owned());
+                waiter.as_mut().enable();
+                (Some(waiter), None)
+            } else {
+                let notify = Arc::new(Notify::new());
+                active.insert(key.clone(), notify.clone());
+                (None, Some(notify))
+            }
+        };
+        if let Some(waiter) = waiter {
+            waiter.await;
+            continue;
+        }
+        let Some(owner_notify) = owner_notify else {
+            continue;
+        };
+        break InflightOwner::new(inflight, key.clone(), owner_notify);
+    };
+    let result = match method {
+        "metadata.search" => search(params).await,
+        "metadata.get" => metadata(params).await,
+        "metadata.bundle" => metadata_bundle(params).await,
+        "metadata.credits" => credits(params).await,
+        "metadata.externalIds" => external_ids(params).await,
+        "metadata.images" => images(params).await,
+        "metadata.trailers" => trailers(params).await,
+        _ => Err(PluginRpcError {
+            code: "PLUGIN_INVALID_REQUEST".to_owned(),
+            message: format!("unsupported metadata method: {method}"),
+        }),
+    };
     {
         let mut entries = cache.lock().await;
-        if let Some(entry) = entries.get(&key) {
-            if entry.created_at.elapsed() < CACHE_TTL {
-                return Ok(entry.value.clone());
+        if entries.len() >= CACHE_CAPACITY {
+            if let Some(oldest_key) = entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.created_at)
+                .map(|(key, _)| key.clone())
+            {
+                entries.remove(&oldest_key);
             }
-            entries.remove(&key);
         }
+        entries.insert(
+            key.clone(),
+            CachedResponse {
+                created_at: Instant::now(),
+                value: result.clone().unwrap_or(Value::Null),
+                negative: result.is_err() && is_not_found_error(result.as_ref().err()),
+            },
+        );
     }
-    let value = match method {
-        "metadata.search" => search(params).await?,
-        "metadata.get" => metadata(params).await?,
-        "metadata.credits" => credits(params).await?,
-        "metadata.externalIds" => external_ids(params).await?,
-        "metadata.images" => images(params).await?,
-        "metadata.trailers" => trailers(params).await?,
-        _ => {
-            return Err(PluginRpcError {
-                code: "PLUGIN_INVALID_REQUEST".to_owned(),
-                message: format!("unsupported metadata method: {method}"),
-            });
-        }
-    };
-    let mut entries = cache.lock().await;
-    if entries.len() >= CACHE_CAPACITY {
-        if let Some(oldest_key) = entries
-            .iter()
-            .min_by_key(|(_, entry)| entry.created_at)
-            .map(|(key, _)| key.clone())
-        {
-            entries.remove(&oldest_key);
-        }
+    if result.is_err() && !is_not_found_error(result.as_ref().err()) {
+        cache.lock().await.remove(&key);
     }
-    entries.insert(
-        key,
-        CachedResponse {
-            created_at: Instant::now(),
-            value: value.clone(),
-        },
-    );
-    Ok(value)
+    owner.finish();
+    result
+}
+
+fn is_not_found_error(error: Option<&PluginRpcError>) -> bool {
+    error.is_some_and(|error| {
+        error.code == "PLUGIN_PROVIDER_NOT_FOUND"
+            || error.message.to_ascii_lowercase().contains("not found")
+    })
 }
 
 async fn search(params: Value) -> Result<Value, PluginRpcError> {
@@ -607,6 +739,119 @@ async fn metadata(params: Value) -> Result<Value, PluginRpcError> {
             message: format!("unsupported TMDb item type: {item_type}"),
         }),
     }
+}
+
+async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
+    let request = parse_request(params)?;
+    let languages = metadata_languages().await;
+    let id = request
+        .provider_id()
+        .ok_or_else(|| invalid("providerId is required"))?;
+    match request.item_type.as_deref().unwrap_or("Movie") {
+        "Movie" => {
+            let details = localized_movie_details_with_append(id, &languages)
+                .await
+                .map_err(tmdb_error)?;
+            let mut provider_ids = serde_json::Map::new();
+            provider_ids.insert("Tmdb".to_owned(), Value::String(id.to_string()));
+            if let Some(external_ids) = details.external_ids.clone() {
+                add_external_ids(&mut provider_ids, external_ids);
+            }
+            Ok(json!({
+                "metadata": movie_details(details.clone()),
+                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "credits": credits_result(details.credits.unwrap_or_default()),
+                "externalIds": {"providerIds": provider_ids},
+                "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
+            }))
+        }
+        "Series" | "TvSeries" => {
+            let details = localized_series_details_with_append(id, &languages)
+                .await
+                .map_err(tmdb_error)?;
+            let mut provider_ids = serde_json::Map::new();
+            provider_ids.insert("Tmdb".to_owned(), Value::String(id.to_string()));
+            if let Some(external_ids) = details.external_ids.clone() {
+                add_external_ids(&mut provider_ids, external_ids);
+            }
+            Ok(json!({
+                "metadata": series_details(details.clone()),
+                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "credits": credits_result(details.credits.unwrap_or_default()),
+                "externalIds": {"providerIds": provider_ids},
+                "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
+            }))
+        }
+        item_type => Err(PluginRpcError {
+            code: "PLUGIN_PROVIDER_NOT_FOUND".to_owned(),
+            message: format!("metadata bundle is not available for {item_type}"),
+        }),
+    }
+}
+
+async fn localized_movie_details_with_append(
+    movie_id: i64,
+    languages: &[String],
+) -> Result<TmdbMovieDetails, luxd::application::tmdb::TmdbError> {
+    let client = client()
+        .await
+        .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
+    let mut details = client
+        .movie_details_with_append(movie_id, &languages[0])
+        .await?;
+    for language in languages.iter().skip(1) {
+        let Ok(fallback) = client.movie_details(movie_id, language).await else {
+            continue;
+        };
+        fill_if_empty(&mut details.title, &fallback.title);
+        fill_if_empty(&mut details.original_title, &fallback.original_title);
+        fill_if_empty(&mut details.overview, &fallback.overview);
+        fill_if_empty(&mut details.release_date, &fallback.release_date);
+        fill_if_empty(&mut details.original_language, &fallback.original_language);
+        fill_if_empty(&mut details.tagline, &fallback.tagline);
+        fill_if_empty(&mut details.homepage, &fallback.homepage);
+        fill_if_empty(&mut details.status, &fallback.status);
+        if details.belongs_to_collection.is_none() {
+            details.belongs_to_collection = fallback.belongs_to_collection;
+        }
+    }
+    let preferred_region = if languages[0].starts_with("zh") {
+        "CN"
+    } else {
+        "US"
+    };
+    if let Ok(release_dates) = client.movie_release_dates(movie_id).await {
+        details.certification = release_dates
+            .certification(preferred_region)
+            .map(str::to_owned);
+    }
+    Ok(details)
+}
+
+async fn localized_series_details_with_append(
+    series_id: i64,
+    languages: &[String],
+) -> Result<TmdbSeriesDetails, luxd::application::tmdb::TmdbError> {
+    let client = client()
+        .await
+        .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
+    let mut details = client
+        .series_details_with_append(series_id, &languages[0])
+        .await?;
+    for language in languages.iter().skip(1) {
+        let Ok(fallback) = client.series_details(series_id, language).await else {
+            continue;
+        };
+        fill_if_empty(&mut details.name, &fallback.name);
+        fill_if_empty(&mut details.original_name, &fallback.original_name);
+        fill_if_empty(&mut details.overview, &fallback.overview);
+        fill_if_empty(&mut details.first_air_date, &fallback.first_air_date);
+        fill_if_empty(&mut details.last_air_date, &fallback.last_air_date);
+        fill_if_empty(&mut details.original_language, &fallback.original_language);
+        fill_if_empty(&mut details.poster_path, &fallback.poster_path);
+        fill_if_empty(&mut details.backdrop_path, &fallback.backdrop_path);
+    }
+    Ok(details)
 }
 
 async fn external_ids(params: Value) -> Result<Value, PluginRpcError> {
@@ -1014,7 +1259,11 @@ async fn credits(params: Value) -> Result<Value, PluginRpcError> {
         }
     }
     .map_err(tmdb_error)?;
-    Ok(json!({
+    Ok(credits_result(response))
+}
+
+fn credits_result(response: luxd::application::tmdb::TmdbCreditsResponse) -> Value {
+    json!({
         "cast": response.cast.into_iter().map(|actor| json!({
             "Id": actor.id.to_string(),
             "Name": actor.name,
@@ -1029,7 +1278,7 @@ async fn credits(params: Value) -> Result<Value, PluginRpcError> {
             "Department": credit.department,
             "ProfileUrl": credit.profile_path.as_deref().map(image_url)
         })).collect::<Vec<_>>()
-    }))
+    })
 }
 
 fn image_results(response: TmdbImagesResponse) -> Vec<Value> {
@@ -1184,8 +1433,13 @@ fn invalid(message: &str) -> PluginRpcError {
 }
 
 fn tmdb_error(error: luxd::application::tmdb::TmdbError) -> PluginRpcError {
+    let code = if matches!(error, luxd::application::tmdb::TmdbError::NotFound) {
+        "PLUGIN_PROVIDER_NOT_FOUND"
+    } else {
+        "PLUGIN_PROVIDER_ERROR"
+    };
     PluginRpcError {
-        code: "PLUGIN_PROVIDER_ERROR".to_owned(),
+        code: code.to_owned(),
         message: error.to_string(),
     }
 }
@@ -1276,5 +1530,47 @@ mod tests {
         assert!(requests_all_image_languages(&manual));
         assert!(!requests_all_image_languages(&batch));
         assert!(!requests_all_image_languages(&legacy));
+    }
+
+    #[test]
+    fn not_found_errors_are_cacheable() {
+        let error = PluginRpcError {
+            code: "PLUGIN_PROVIDER_NOT_FOUND".to_owned(),
+            message: "TMDb resource was not found".to_owned(),
+        };
+        assert!(is_not_found_error(Some(&error)));
+        assert!(!is_not_found_error(None));
+    }
+
+    #[test]
+    fn tmdb_not_found_uses_the_provider_not_found_code() {
+        let error = tmdb_error(luxd::application::tmdb::TmdbError::NotFound);
+        assert_eq!(error.code, "PLUGIN_PROVIDER_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn singleflight_owner_wakes_an_already_registered_waiter() {
+        let map: &'static InflightMap = Box::leak(Box::new(StdMutex::new(HashMap::new())));
+        let notify = Arc::new(Notify::new());
+        lock_inflight(map).insert("same".to_owned(), notify.clone());
+        let mut waiter = Box::pin(notify.clone().notified_owned());
+        waiter.as_mut().enable();
+
+        let owner = InflightOwner::new(map, "same".to_owned(), notify);
+        owner.finish();
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("singleflight waiter should be woken");
+        assert!(lock_inflight(map).is_empty());
+    }
+
+    #[test]
+    fn cancelled_singleflight_owner_releases_its_key() {
+        let map: &'static InflightMap = Box::leak(Box::new(StdMutex::new(HashMap::new())));
+        let notify = Arc::new(Notify::new());
+        lock_inflight(map).insert("cancelled".to_owned(), notify.clone());
+        let owner = InflightOwner::new(map, "cancelled".to_owned(), notify);
+        drop(owner);
+        assert!(lock_inflight(map).is_empty());
     }
 }

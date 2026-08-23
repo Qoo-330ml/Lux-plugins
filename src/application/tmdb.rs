@@ -284,6 +284,33 @@ impl TmdbClient {
         self.alternative_titles("movie", movie_id).await
     }
 
+    pub async fn movie_details_with_append(
+        &self,
+        movie_id: i64,
+        language: &str,
+    ) -> Result<TmdbMovieDetails, TmdbError> {
+        if movie_id <= 0 || language.trim().is_empty() {
+            return Err(TmdbError::InvalidRequest(
+                "movie ID and language are required".to_owned(),
+            ));
+        }
+        let endpoint = format!("3/movie/{movie_id}");
+        let params = [
+            ("language", language.trim().to_owned()),
+            (
+                "append_to_response",
+                "images,credits,external_ids,videos".to_owned(),
+            ),
+        ];
+        let details: TmdbMovieDetails = self.request_json(&endpoint, &params).await?;
+        if details.id <= 0 {
+            return Err(TmdbError::InvalidResponse(
+                "movie details ID is invalid".to_owned(),
+            ));
+        }
+        Ok(details)
+    }
+
     pub async fn search_tv(
         &self,
         query: &str,
@@ -411,6 +438,25 @@ impl TmdbClient {
         series_id: i64,
     ) -> Result<TmdbAlternativeTitlesResponse, TmdbError> {
         self.alternative_titles("tv", series_id).await
+    }
+
+    pub async fn series_details_with_append(
+        &self,
+        series_id: i64,
+        language: &str,
+    ) -> Result<TmdbSeriesDetails, TmdbError> {
+        validate_id_language(series_id, language, "series")?;
+        let endpoint = format!("3/tv/{series_id}");
+        let params = [
+            ("language", language.trim().to_owned()),
+            (
+                "append_to_response",
+                "images,credits,external_ids,videos".to_owned(),
+            ),
+        ];
+        let details: TmdbSeriesDetails = self.request_json(&endpoint, &params).await?;
+        validate_id(details.id, "series details")?;
+        Ok(details)
     }
 
     pub async fn season_details(
@@ -1035,6 +1081,14 @@ pub struct TmdbMovieDetails {
     #[serde(skip)]
     pub certification: Option<String>,
     pub belongs_to_collection: Option<TmdbCollectionReference>,
+    #[serde(default)]
+    pub images: Option<TmdbImagesResponse>,
+    #[serde(default)]
+    pub credits: Option<TmdbCreditsResponse>,
+    #[serde(default)]
+    pub external_ids: Option<TmdbExternalIds>,
+    #[serde(default)]
+    pub videos: Option<TmdbVideosResponse>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1161,6 +1215,14 @@ pub struct TmdbSeriesDetails {
     pub backdrop_path: Option<String>,
     #[serde(default)]
     pub seasons: Vec<TmdbSeasonSummary>,
+    #[serde(default)]
+    pub images: Option<TmdbImagesResponse>,
+    #[serde(default)]
+    pub credits: Option<TmdbCreditsResponse>,
+    #[serde(default)]
+    pub external_ids: Option<TmdbExternalIds>,
+    #[serde(default)]
+    pub videos: Option<TmdbVideosResponse>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
