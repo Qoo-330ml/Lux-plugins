@@ -1,9 +1,8 @@
 use std::{
     collections::HashMap,
     env,
-    io::{BufRead, Write},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex, MutexGuard},
     time::{Duration, Instant},
 };
 
@@ -20,15 +19,77 @@ use luxd::application::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::sync::{Notify, OnceCell};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
+    sync::{Mutex, Notify, OnceCell, Semaphore},
+    task::JoinSet,
+};
 
 static CLIENT: OnceCell<Result<TmdbClient, String>> = OnceCell::const_new();
 static SETTINGS: OnceCell<TmdbSettings> = OnceCell::const_new();
-static RESPONSE_CACHE: OnceCell<tokio::sync::Mutex<HashMap<String, CachedResponse>>> =
-    OnceCell::const_new();
-static INFLIGHT: OnceCell<tokio::sync::Mutex<HashMap<String, Arc<Notify>>>> = OnceCell::const_new();
+static RESPONSE_CACHE: OnceCell<Mutex<HashMap<String, CachedResponse>>> = OnceCell::const_new();
+static INFLIGHT: OnceCell<InflightMap> = OnceCell::const_new();
 const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CACHE_CAPACITY: usize = 256;
+const MAX_RPC_CONCURRENCY: usize = 16;
+
+type InflightMap = StdMutex<HashMap<String, Arc<Notify>>>;
+
+struct InflightOwner {
+    map: &'static InflightMap,
+    key: String,
+    notify: Arc<Notify>,
+    released: bool,
+}
+
+impl InflightOwner {
+    fn new(map: &'static InflightMap, key: String, notify: Arc<Notify>) -> Self {
+        Self {
+            map,
+            key,
+            notify,
+            released: false,
+        }
+    }
+
+    fn finish(mut self) {
+        self.release();
+    }
+
+    fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        let notify = {
+            let mut active = lock_inflight(self.map);
+            if active
+                .get(&self.key)
+                .is_some_and(|current| Arc::ptr_eq(current, &self.notify))
+            {
+                active.remove(&self.key)
+            } else {
+                None
+            }
+        };
+        if let Some(notify) = notify {
+            notify.notify_waiters();
+        }
+    }
+}
+
+impl Drop for InflightOwner {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+fn lock_inflight(map: &InflightMap) -> MutexGuard<'_, HashMap<String, Arc<Notify>>> {
+    match map.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 #[derive(Clone)]
 struct CachedResponse {
@@ -76,28 +137,37 @@ struct TmdbRawRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let lines = stdin.lock().lines();
-    let mut output = stdout.lock();
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let output = Arc::new(Mutex::new(BufWriter::new(tokio::io::stdout())));
+    let permits = Arc::new(Semaphore::new(MAX_RPC_CONCURRENCY));
+    let mut tasks: JoinSet<Result<(), Box<dyn std::error::Error + Send + Sync>>> = JoinSet::new();
 
-    for line in lines {
-        let line = line?;
-        let response = match serde_json::from_str::<PluginRequest>(&line) {
-            Ok(request) => handle_request(request).await,
-            Err(error) => PluginResponse {
-                id: "invalid-request".to_owned(),
-                result: None,
-                error: Some(PluginRpcError {
-                    code: "PLUGIN_INVALID_REQUEST".to_owned(),
-                    message: error.to_string(),
-                }),
-            },
-        };
-        let mut serialized = serde_json::to_vec(&response)?;
-        serialized.push(b'\n');
-        output.write_all(&serialized)?;
-        output.flush()?;
+    while let Some(line) = lines.next_line().await? {
+        let permit = permits.clone().acquire_owned().await?;
+        let output = output.clone();
+        tasks.spawn(async move {
+            let _permit = permit;
+            let response = match serde_json::from_str::<PluginRequest>(&line) {
+                Ok(request) => handle_request(request).await,
+                Err(error) => PluginResponse {
+                    id: "invalid-request".to_owned(),
+                    result: None,
+                    error: Some(PluginRpcError {
+                        code: "PLUGIN_INVALID_REQUEST".to_owned(),
+                        message: error.to_string(),
+                    }),
+                },
+            };
+            let mut serialized = serde_json::to_vec(&response)?;
+            serialized.push(b'\n');
+            let mut output = output.lock().await;
+            output.write_all(&serialized).await?;
+            output.flush().await?;
+            Ok(())
+        });
+    }
+    while let Some(result) = tasks.join_next().await {
+        result??;
     }
     Ok(())
 }
@@ -183,12 +253,12 @@ async fn cached_metadata_call(method: &str, params: Value) -> Result<Value, Plug
         message: error.to_string(),
     })?;
     let cache = RESPONSE_CACHE
-        .get_or_init(|| async { tokio::sync::Mutex::new(HashMap::new()) })
+        .get_or_init(|| async { Mutex::new(HashMap::new()) })
         .await;
     let inflight = INFLIGHT
-        .get_or_init(|| async { tokio::sync::Mutex::new(HashMap::new()) })
+        .get_or_init(|| async { StdMutex::new(HashMap::new()) })
         .await;
-    loop {
+    let owner = loop {
         {
             let mut entries = cache.lock().await;
             if let Some(entry) = entries.get(&key) {
@@ -204,16 +274,27 @@ async fn cached_metadata_call(method: &str, params: Value) -> Result<Value, Plug
                 entries.remove(&key);
             }
         }
-        let mut active = inflight.lock().await;
-        if let Some(notify) = active.get(&key) {
-            let notify = notify.clone();
-            drop(active);
-            notify.notified().await;
+        let (waiter, owner_notify) = {
+            let mut active = lock_inflight(inflight);
+            if let Some(notify) = active.get(&key) {
+                let mut waiter = Box::pin(notify.clone().notified_owned());
+                waiter.as_mut().enable();
+                (Some(waiter), None)
+            } else {
+                let notify = Arc::new(Notify::new());
+                active.insert(key.clone(), notify.clone());
+                (None, Some(notify))
+            }
+        };
+        if let Some(waiter) = waiter {
+            waiter.await;
             continue;
         }
-        active.insert(key.clone(), Arc::new(Notify::new()));
-        break;
-    }
+        let Some(owner_notify) = owner_notify else {
+            continue;
+        };
+        break InflightOwner::new(inflight, key.clone(), owner_notify);
+    };
     let result = match method {
         "metadata.search" => search(params).await,
         "metadata.get" => metadata(params).await,
@@ -250,9 +331,7 @@ async fn cached_metadata_call(method: &str, params: Value) -> Result<Value, Plug
     if result.is_err() && !is_not_found_error(result.as_ref().err()) {
         cache.lock().await.remove(&key);
     }
-    if let Some(notify) = inflight.lock().await.remove(&key) {
-        notify.notify_waiters();
-    }
+    owner.finish();
     result
 }
 
@@ -1287,5 +1366,31 @@ mod tests {
     fn tmdb_not_found_uses_the_provider_not_found_code() {
         let error = tmdb_error(luxd::application::tmdb::TmdbError::NotFound);
         assert_eq!(error.code, "PLUGIN_PROVIDER_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn singleflight_owner_wakes_an_already_registered_waiter() {
+        let map: &'static InflightMap = Box::leak(Box::new(StdMutex::new(HashMap::new())));
+        let notify = Arc::new(Notify::new());
+        lock_inflight(map).insert("same".to_owned(), notify.clone());
+        let mut waiter = Box::pin(notify.clone().notified_owned());
+        waiter.as_mut().enable();
+
+        let owner = InflightOwner::new(map, "same".to_owned(), notify);
+        owner.finish();
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("singleflight waiter should be woken");
+        assert!(lock_inflight(map).is_empty());
+    }
+
+    #[test]
+    fn cancelled_singleflight_owner_releases_its_key() {
+        let map: &'static InflightMap = Box::leak(Box::new(StdMutex::new(HashMap::new())));
+        let notify = Arc::new(Notify::new());
+        lock_inflight(map).insert("cancelled".to_owned(), notify.clone());
+        let owner = InflightOwner::new(map, "cancelled".to_owned(), notify);
+        drop(owner);
+        assert!(lock_inflight(map).is_empty());
     }
 }
