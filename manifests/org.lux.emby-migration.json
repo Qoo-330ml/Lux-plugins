@@ -8,8 +8,13 @@
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "data_migration",
   "category": "MIGRATION",
-  "supportedItemTypes": ["Movie", "Series", "Season", "Episode"],
+  "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "Person"],
   "capabilities": ["migration.emby"],
+  "configFields": [
+    {"key": "baseUrl", "label": "Emby 地址", "type": "text", "required": true, "description": "填写 Emby Server 的 HTTP(S) 基础地址，不要附带 API 路径、查询参数或凭据。"},
+    {"key": "apiKey", "label": "Emby API Key", "type": "password", "required": true, "sensitive": true, "description": "只保存在 Lux 插件配置中，用于读取 Emby 数据。"},
+    {"key": "allowPrivateNetwork", "label": "允许连接局域网地址", "type": "toggle", "defaultValue": false, "description": "Emby 位于局域网或私有网络时开启。"}
+  ],
   "permissions": {"network": ["user-configured-emby"], "filesystem": []},
   "files": []
 }
