@@ -1,5 +1,5 @@
-pub mod emby_migration;
 pub mod douban;
+pub mod emby_migration;
 pub mod media_matching;
 pub mod plugin_protocol;
 pub mod probe;
