@@ -5,6 +5,7 @@
   "description": "从豆瓣提供电影、剧集、图片、人物和预告片元数据。公开搜索无需配置；详情接口可配置豆瓣客户端凭据。",
   "version": "__VERSION__",
   "apiVersion": 1,
+  "providerKey": "douban",
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "metadata",
   "category": "SCRAPER",

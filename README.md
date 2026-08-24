@@ -28,7 +28,7 @@ timeline from aggregate UserData.
 
 ## Douban metadata
 
-`org.lux.douban` implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
+`org.lux.douban` (provider key `douban`) implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
 Series search, metadata bundles, poster images, cast/director credits, the Douban provider ID,
 and available trailers. Season metadata is supported when the upstream subject represents a
 season; episode, person, and collection metadata are reported as unsupported because the
