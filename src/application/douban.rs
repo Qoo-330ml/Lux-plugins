@@ -111,8 +111,10 @@ pub struct DoubanSubject {
 pub struct DoubanRating {
     #[serde(default)]
     pub value: Option<f64>,
-    #[serde(rename = "star_count", default)]
+    #[serde(rename = "count", default)]
     pub vote_count: Option<f64>,
+    #[serde(rename = "star_count", default)]
+    pub star_count: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]

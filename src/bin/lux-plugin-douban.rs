@@ -690,7 +690,7 @@ mod tests {
             "intro": "一段奇幻旅程",
             "year": "2001",
             "pubdate": ["2001-07-20(日本)"],
-            "rating": {"value": 9.4, "star_count": 100000},
+            "rating": {"value": 9.4, "count": 100000, "star_count": 4.5},
             "pic": {"large": "https://img1.doubanio.com/large.jpg", "normal": "https://img1.doubanio.com/normal.jpg"},
             "countries": ["日本"],
             "genres": ["剧情", "动画"]
