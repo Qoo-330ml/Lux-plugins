@@ -8,7 +8,7 @@
       "name": "弹幕匹配",
       "description": "匹配本地视频并获取 Bilibili 标准弹幕 XML。",
       "category": "MEDIA",
-      "version": "1.0.0",
+      "version": "0.1.1",
       "runtime": "process",
       "capabilities": [
         "danmaku.match"
@@ -17,14 +17,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-1.0.0-linux-aarch64.zip",
-          "sha256": "76f3fd4bc2aaecdb9c89dfe04dda33c9946f80b487a638f728a45bbcf17b5aed"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-0.1.1-linux-aarch64.zip",
+          "sha256": "0e654b85e29a98d5511b2deea99fcd0d0566945985acf92f19b2c5e581a85271"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-1.0.0-linux-x86_64.zip",
-          "sha256": "e498213e3a89cf21e0ba1750c14e102a25a0c191870f9245e0c388f2aa0a0922"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-0.1.1-linux-x86_64.zip",
+          "sha256": "832bf37c0935cff7c66582b5a3bd3ff38245cabbf5b9f68a4fd4a2b26b341f6c"
         }
       ]
     },
@@ -48,13 +48,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-aarch64.zip",
-          "sha256": "cf71dd8e89ff350c5dbae98feedc98db67c9dd6fb4d7a94c5d749537a1dc4ff7"
+          "sha256": "f2dd97829585869606868177c7e2427c73cbc4d42f0aa3ffdabe12921910cb00"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-x86_64.zip",
-          "sha256": "1de27c0321ecb7d455a7c4fbe63a7492d017d7fc4d05d16007d21e2e2f900f59"
+          "sha256": "d3eecaef15a369d8b9ce6044bbbdb9f7fbc18d6007695ea787f130cf2b3641d7"
         }
       ]
     },
@@ -73,13 +73,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-aarch64.zip",
-          "sha256": "e307d5d1af4e02969c71950e088f00cb801d007047904b7f970a9030bf3f0bde"
+          "sha256": "14e6fadcc613f647be0a6e8fca1934e58ce4b7d7463783e90eb6517aed040c22"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-x86_64.zip",
-          "sha256": "d4ef6cfab47c09bc7fa4e2cdf600d626a95abaead264ccbf8256d40c715a4bd2"
+          "sha256": "6acbdc5c8254f71d707a2b2158d04ab3b3911e7d06fe2bd6d9f39cd6406d9686"
         }
       ]
     },
@@ -98,13 +98,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-aarch64.zip",
-          "sha256": "afe6ce4a1109e2b78571fb6a1c103b83450bfa9c413841cae7a11d615c51f88a"
+          "sha256": "5d21173713e3baa3cf473e7dcd35c4721ebc0139e6244942e51dfa303c4317ea"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-x86_64.zip",
-          "sha256": "9a07a2dcce876e9e4b56eaac0cda9dbdbddcd7c4fd7c3a5df40db3f40067f005"
+          "sha256": "53bbab3604838a756322403244d3e10e04b7a407790cd21ba59cd4f144227f1a"
         }
       ]
     },
@@ -123,13 +123,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-aarch64.zip",
-          "sha256": "0eeb7cafe90138d66e24cadb014e46e6432d3aead8625455cd8afb0e0aee281c"
+          "sha256": "3348bca5fe239fed20bd60e23dc526b583eac580dbf769324ce7f5fa13390bf2"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-x86_64.zip",
-          "sha256": "1b14e5f19f04ff5fe7f9f287853a401e5d09dd1f342ad84ace6d217f9da3cae8"
+          "sha256": "3d122ece54d08d5ee5d7b7727b2eb4cf8face48153ae9187c902fb1cab83e3e4"
         }
       ]
     },
@@ -148,13 +148,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-aarch64.zip",
-          "sha256": "a7bb54c5eb18662c99172e34e17be86ff09ec5053072163dd2e545906cb13b4e"
+          "sha256": "30c63461fda212e2d9c54769787b868dcdac376e264a769cc9915fd63950e0c7"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-x86_64.zip",
-          "sha256": "ed70c85840862faa9fdbc7aac759528a84d946a2883299971054c111b6a7faa3"
+          "sha256": "b8a051198b5fa2e5b1f9f3f648af61e9f9a20c0e2dbc0af12ccdb0f70667c50a"
         }
       ]
     },
@@ -173,13 +173,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-aarch64.zip",
-          "sha256": "4bedb076246663b07656dc986f1f3fe89f9844bce9a7e3cf8488da89ac80a1a6"
+          "sha256": "7cc3e1ca83fe18c28596f28c8d73ff774d87f7eec3a677c9c2156b6cfca2421f"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-x86_64.zip",
-          "sha256": "632cdb0b2abf6b42e50c8ef744550112ce6c8a53ec386b0ae8ff863cc34b6ff5"
+          "sha256": "a5886abfb3449775253a8a8ea8d0b5f08a33af75a74265ad5125c79d99114e69"
         }
       ]
     },
@@ -198,13 +198,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-aarch64.zip",
-          "sha256": "49c68d4b412bcff72fc389d00e32d902e409a805e0c082e5dedf7c584b75ce18"
+          "sha256": "546fe575a7f25ba7a488c18e88aa8b52a7e52bd82117b947ecbc4982fb5037ce"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-x86_64.zip",
-          "sha256": "bf04115c3775efa8653630ebbbe835b57041a8fd91f97406694978cbae74c9bf"
+          "sha256": "89163c21f120984981603044625b7d078496501cc4a591fc2967652ed2c514a2"
         }
       ]
     },
@@ -229,13 +229,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-aarch64.zip",
-          "sha256": "1816c7ba75b91a7179807eca74b70340595f8a6d140fbccccf24340dd765bde0"
+          "sha256": "61619103bb79a5abab1df3e6352ad073bad8dd79698ed3a5694a1756485c6772"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-x86_64.zip",
-          "sha256": "5749404608eb6880105a48fcb0e5390e75569edf456bfcc2dc0a6c6ef4676cb1"
+          "sha256": "8c8d5987e9613e892a8d1e7e955b45c8f65f0d083440a78c784a825c3d49535b"
         }
       ]
     },
@@ -254,13 +254,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.0-linux-aarch64.zip",
-          "sha256": "85b5c58fb007acf303b03fc33377d9ffe8087f69cd7e0ea0dfd9ea1154412310"
+          "sha256": "c305cfcbd101efacf14f79d89c53a7f9e672beb5ade19538318da10613af723b"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.0-linux-x86_64.zip",
-          "sha256": "7cec2789305b2f195e2fbee6a2a108ef9c7556a5a705cf01082ba3a20301c5f6"
+          "sha256": "1661f41cd0bef2f0e7ce1022000dd2ec415d02531530cba8a9cbb920e8dfa783"
         }
       ]
     }
