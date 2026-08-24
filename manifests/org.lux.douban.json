@@ -25,6 +25,7 @@
   "permissions": {
     "network": [
       "frodo.douban.com",
+      "api.douban.com",
       "movie.douban.com",
       "img1.doubanio.com",
       "img2.doubanio.com",
