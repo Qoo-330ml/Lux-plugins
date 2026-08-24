@@ -1,6 +1,6 @@
 [
   {"id": "org.lux.tmdb", "binary": "lux-plugin-tmdb", "version": "0.1.8", "manifest": "manifests/org.lux.tmdb.json"},
-  {"id": "org.lux.douban", "binary": "lux-plugin-douban", "version": "0.1.0", "manifest": "manifests/org.lux.douban.json"},
+  {"id": "org.lux.douban", "binary": "lux-plugin-douban", "version": "0.1.1", "manifest": "manifests/org.lux.douban.json"},
   {"id": "org.lux.strm-media-info", "binary": "lux-plugin-strm-media-info", "version": "0.2.0", "manifest": "manifests/org.lux.strm-media-info.json"},
   {"id": "org.lux.ip-hiofd", "binary": "lux-plugin-ip-hiofd", "version": "0.1.0", "manifest": "manifests/org.lux.ip-hiofd.json"},
   {"id": "org.lux.qoo-ip138", "binary": "lux-plugin-qoo-ip138", "version": "0.1.0", "manifest": "manifests/org.lux.qoo-ip138.json"},
