@@ -737,4 +737,42 @@ mod tests {
         server.await.expect("server");
         assert_eq!(result.subjects.items[0].target.id, "1291561");
     }
+
+    #[tokio::test]
+    async fn sends_legacy_v2_subject_requests_with_the_dll_api_shape() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = [0_u8; 4096];
+            let size = stream.read(&mut request).await.expect("request bytes");
+            let request = String::from_utf8_lossy(&request[..size]);
+            assert!(request.starts_with("GET /v2/movie/1291561?"));
+            assert!(request.contains("apikey=key"));
+            assert!(!request.contains("_sig="));
+            let body = r#"{"id":"1291561","title":"千与千寻","year":"2001"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+        let client = DoubanClient::new(DoubanClientConfig {
+            api_base_url: format!("http://{address}/v2/"),
+            suggest_base_url: format!("http://{address}/"),
+            api_key: Some("key".to_owned()),
+            request_interval: Duration::ZERO,
+            timeout: Duration::from_secs(2),
+            ..DoubanClientConfig::default()
+        })
+        .expect("client");
+        let result = client.subject("Movie", "1291561").await.expect("subject");
+        server.await.expect("server");
+        assert_eq!(result.id, "1291561");
+        assert_eq!(result.title.as_deref(), Some("千与千寻"));
+    }
 }
