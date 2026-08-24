@@ -9,7 +9,7 @@
   "type": "metadata",
   "category": "SCRAPER",
   "supportedItemTypes": ["Movie", "Series", "Season"],
-  "capabilities": ["metadata.search", "metadata.get", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
+  "capabilities": ["metadata.search", "metadata.get", "metadata.bundle", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
   "configFields": [{
       "key": "requestIntervalMs",
       "label": "请求间隔（毫秒）",
