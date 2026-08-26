@@ -1081,23 +1081,18 @@ fn settings_from_plugin_config(config: TmdbPluginConfig) -> TmdbSettings {
 }
 
 fn read_plugin_config() -> TmdbPluginConfig {
-    let path = plugin_config_path(
-        env::var_os("LUX_PLUGIN_CONFIG_PATH").map(PathBuf::from),
-        env::var_os("LUX_CONFIG_DIR").map(PathBuf::from),
-    );
+    let Some(path) = plugin_config_path(env::var_os("LUX_PLUGIN_CONFIG_PATH").map(PathBuf::from))
+    else {
+        return TmdbPluginConfig::default();
+    };
     std::fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
 }
 
-fn plugin_config_path(explicit_path: Option<PathBuf>, config_dir: Option<PathBuf>) -> PathBuf {
-    explicit_path.unwrap_or_else(|| {
-        config_dir
-            .unwrap_or_else(|| PathBuf::from("./config"))
-            .join("plugin-config")
-            .join("org.lux.tmdb.json")
-    })
+fn plugin_config_path(explicit_path: Option<PathBuf>) -> Option<PathBuf> {
+    explicit_path.filter(|path| !path.as_os_str().is_empty())
 }
 
 fn first_chinese_alias(response: &TmdbAlternativeTitlesResponse) -> Option<String> {
@@ -1619,16 +1614,12 @@ mod tests {
     #[test]
     fn plugin_config_path_prefers_the_host_supplied_file() {
         assert_eq!(
-            plugin_config_path(
-                Some(PathBuf::from("/config/plugin-config/org.lux.tmdb.json")),
-                Some(PathBuf::from("/config")),
-            ),
-            PathBuf::from("/config/plugin-config/org.lux.tmdb.json")
+            plugin_config_path(Some(PathBuf::from(
+                "/config/plugin-config/org.lux.tmdb.json",
+            ))),
+            Some(PathBuf::from("/config/plugin-config/org.lux.tmdb.json"))
         );
-        assert_eq!(
-            plugin_config_path(None, Some(PathBuf::from("/config"))),
-            PathBuf::from("/config/plugin-config/org.lux.tmdb.json")
-        );
+        assert_eq!(plugin_config_path(None), None);
     }
 
     #[tokio::test]
