@@ -33,11 +33,16 @@
       "name": "豆瓣元数据插件",
       "description": "从豆瓣提供电影、剧集、图片、人物和预告片元数据。公开搜索无需配置；详情接口可配置豆瓣客户端凭据。",
       "category": "SCRAPER",
-      "version": "0.1.0",
+      "version": "0.1.4",
       "runtime": "process",
+      "providerKey": "douban",
+      "aliases": [
+        "douban"
+      ],
       "capabilities": [
         "metadata.search",
         "metadata.get",
+        "metadata.bundle",
         "metadata.images",
         "metadata.credits",
         "metadata.externalIds",
@@ -47,14 +52,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-aarch64.zip",
-          "sha256": "a3808de932e76787a745a00bf5acd1c5bb8d98d381546ed4407e7903812b154a"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.4-linux-aarch64.zip",
+          "sha256": "7b0e248b55f2e4eba730baf6a3ddd1d9359bd2c835132390fad218929df79f55"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-x86_64.zip",
-          "sha256": "440861e01a470211a6b46cf440d0f292ed0cace3ff68c8e78b78d5b14de46051"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.4-linux-x86_64.zip",
+          "sha256": "2fa89811334d399c34fd498e665b79c4b1036e01b4510c69ad8af0fa0dde9461"
         }
       ]
     },
@@ -213,8 +218,12 @@
       "name": "TMDb 元数据插件",
       "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
       "category": "SCRAPER",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "runtime": "process",
+      "providerKey": "tmdb",
+      "aliases": [
+        "tmdb"
+      ],
       "capabilities": [
         "metadata.search",
         "metadata.get",
@@ -228,14 +237,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-aarch64.zip",
-          "sha256": "3984d879572d17f6ae6aeb360baeb7b4d52488f00aafad3cbfedde6d31fd0514"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.9-linux-aarch64.zip",
+          "sha256": "01dabb997ea184f11b879a634e12b0b331ee6ea44ed747ddc70bce1c1d7c8a17"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-x86_64.zip",
-          "sha256": "85d82e4811406e37f8600a64c3a2370f210a3eef96a3be2ca6c1ab1f8b3914c3"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.9-linux-x86_64.zip",
+          "sha256": "274be17fa4a7b1b6adc1b8075c328e342102d66ad0d09a910aaf44c8071fd402"
         }
       ]
     },
