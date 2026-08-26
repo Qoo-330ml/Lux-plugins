@@ -58,6 +58,10 @@ pub struct PluginManifest {
     #[serde(default = "default_plugin_category")]
     pub category: String,
     #[serde(default)]
+    pub provider_key: Option<String>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
     pub supported_item_types: Vec<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,

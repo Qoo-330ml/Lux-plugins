@@ -8,6 +8,8 @@
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "metadata",
   "category": "SCRAPER",
+  "providerKey": "tmdb",
+  "aliases": ["tmdb"],
   "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "Person", "BoxSet"],
   "capabilities": ["metadata.search", "metadata.get", "metadata.bundle", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
   "configFields": [{
@@ -18,12 +20,58 @@
     "sensitive": true,
     "description": "可选。留空时使用 TMDb 插件自己的默认凭据。"
   }, {
+    "key": "readAccessToken",
+    "label": "TMDb Read Access Token",
+    "type": "password",
+    "required": false,
+    "sensitive": true,
+    "description": "可选。兼容历史 TMDb v4 Read Access Token。"
+  }, {
+    "key": "preferredLanguage",
+    "label": "首选语言",
+    "type": "text",
+    "required": false,
+    "sensitive": false,
+    "defaultValue": "zh-CN",
+    "description": "TMDb 元数据的首选语言。"
+  }, {
+    "key": "languageFallbackEnabled",
+    "label": "语言回退",
+    "type": "toggle",
+    "required": false,
+    "sensitive": false,
+    "defaultValue": false,
+    "description": "按备选语言顺序逐字段补全缺失元数据。"
+  }, {
+    "key": "fallbackLanguages",
+    "label": "备选语言顺序",
+    "type": "select",
+    "multiple": true,
+    "required": false,
+    "sensitive": false,
+    "options": [{"value": "zh-SG", "label": "zh-SG"}, {"value": "zh-HK", "label": "zh-HK"}, {"value": "zh-TW", "label": "zh-TW"}]
+  }, {
+    "key": "alternateApiEnabled",
+    "label": "启用替代 API 地址",
+    "type": "toggle",
+    "required": false,
+    "sensitive": false,
+    "defaultValue": false
+  }, {
+    "key": "apiBaseUrl",
+    "label": "TMDb API 地址",
+    "type": "text",
+    "required": false,
+    "sensitive": false,
+    "defaultValue": "https://api.themoviedb.org",
+    "description": "仅在启用替代 API 地址时使用；必须是无凭据的 HTTP(S) 地址。"
+  }, {
     "key": "titleAliasReplacementEnabled",
     "label": "标题别名替换",
     "type": "toggle",
     "required": false,
     "sensitive": false,
-    "description": "当tmdb语言检索不到中文名称时，尝试使用中文别名替换"
+    "description": "当 TMDb 语言检索不到中文名称时，尝试使用中文别名替换。"
   }],
   "permissions": {"network": ["api.themoviedb.org", "api.tmdb.org", "image.tmdb.org"], "filesystem": ["plugin-cache"]},
   "files": []

@@ -6,6 +6,7 @@
   "version": "__VERSION__",
   "apiVersion": 1,
   "providerKey": "douban",
+  "aliases": ["douban"],
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "metadata",
   "category": "SCRAPER",

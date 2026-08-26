@@ -597,16 +597,23 @@ fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError
 }
 
 fn read_plugin_config() -> DoubanPluginConfig {
-    let config_dir = env::var_os("LUX_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("./config"));
-    let path = config_dir
-        .join("plugin-config")
-        .join(format!("{PLUGIN_ID}.json"));
+    let path = plugin_config_path(
+        env::var_os("LUX_PLUGIN_CONFIG_PATH").map(PathBuf::from),
+        env::var_os("LUX_CONFIG_DIR").map(PathBuf::from),
+    );
     fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
+}
+
+fn plugin_config_path(explicit_path: Option<PathBuf>, config_dir: Option<PathBuf>) -> PathBuf {
+    explicit_path.unwrap_or_else(|| {
+        config_dir
+            .unwrap_or_else(|| PathBuf::from("./config"))
+            .join("plugin-config")
+            .join(format!("{PLUGIN_ID}.json"))
+    })
 }
 
 fn parse_request(params: Value) -> Result<MetadataRequest, PluginRpcError> {
@@ -773,5 +780,20 @@ mod tests {
     fn always_has_a_default_public_key_without_configuration() {
         let client = build_client().expect("client");
         assert!(client.has_api_credentials());
+    }
+
+    #[test]
+    fn plugin_config_path_prefers_the_host_supplied_file() {
+        assert_eq!(
+            plugin_config_path(
+                Some(PathBuf::from("/config/plugin-config/org.lux.douban.json")),
+                Some(PathBuf::from("/config")),
+            ),
+            PathBuf::from("/config/plugin-config/org.lux.douban.json")
+        );
+        assert_eq!(
+            plugin_config_path(None, Some(PathBuf::from("/config"))),
+            PathBuf::from("/config/plugin-config/org.lux.douban.json")
+        );
     }
 }
