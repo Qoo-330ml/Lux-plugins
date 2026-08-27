@@ -77,6 +77,26 @@ pub struct ItemPageRequest {
     pub start_index: u32,
     #[serde(default = "default_page_size")]
     pub limit: u32,
+    #[serde(default)]
+    pub state_filter: Option<UserStateFilter>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UserStateFilter {
+    Played,
+    Favorite,
+    Resumable,
+}
+
+impl UserStateFilter {
+    fn emby_filter(self) -> &'static str {
+        match self {
+            Self::Played => "IsPlayed",
+            Self::Favorite => "IsFavorite",
+            Self::Resumable => "IsResumable",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -394,6 +414,11 @@ async fn list_items_internal(
     let request: ItemPageRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let limit = request.limit.clamp(1, MAX_PAGE_SIZE);
     let user_id = validate_identifier(&request.user_id).map_err(|_| invalid_request())?;
+    let state_filter = if include_user_data && !person_favorites {
+        Some(request.state_filter.ok_or_else(invalid_request)?)
+    } else {
+        None
+    };
     let client = EmbyClient::new(request.source)
         .await
         .map_err(to_rpc_error)?;
@@ -412,6 +437,9 @@ async fn list_items_internal(
         ("Fields", fields.to_owned()),
         ("IncludeItemTypes", include_item_types.to_owned()),
     ];
+    if let Some(state_filter) = state_filter {
+        query.push(("Filters", state_filter.emby_filter().to_owned()));
+    }
     if person_favorites {
         query.push(("IsFavorite", "true".to_owned()));
     }
@@ -752,6 +780,64 @@ fn to_rpc_error(error: MigrationError) -> PluginRpcError {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn recorded_state_filters_map_to_emby_item_filters() {
+        assert_eq!(UserStateFilter::Played.emby_filter(), "IsPlayed");
+        assert_eq!(UserStateFilter::Favorite.emby_filter(), "IsFavorite");
+        assert_eq!(UserStateFilter::Resumable.emby_filter(), "IsResumable");
+    }
+
+    #[tokio::test]
+    async fn user_state_requests_the_selected_recorded_state_filter() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.expect("request bytes");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            assert!(request.starts_with("GET /Users/user-1/Items?"));
+            assert!(request.contains("Filters=IsPlayed"));
+            let body = r#"{"Items":[],"TotalRecordCount":0,"StartIndex":0}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+
+        let result = user_state(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userId": "user-1",
+            "startIndex": 0,
+            "limit": 100,
+            "stateFilter": "PLAYED",
+        }))
+        .await
+        .expect("filtered state request should succeed");
+
+        assert!(result["items"].as_array().is_some_and(Vec::is_empty));
+        server.await.expect("server should finish");
+    }
 
     #[test]
     fn maps_user_data_without_creating_history_events() {
