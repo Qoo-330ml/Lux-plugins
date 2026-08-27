@@ -36,12 +36,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
             ["zh-CN", "zh-SG", "zh-HK", "zh-TW"],
         )
 
-        api_base_url = fields["apiBaseUrl"]
-        self.assertEqual(api_base_url["type"], "select")
+        api_base_url_preset = fields["apiBaseUrlPreset"]
+        self.assertEqual(api_base_url_preset["type"], "select")
         self.assertEqual(
-            [option["value"] for option in api_base_url["options"]],
+            [option["value"] for option in api_base_url_preset["options"]],
             ["official", "alternate", "custom"],
         )
+
+        api_base_url = fields["apiBaseUrl"]
+        self.assertEqual(api_base_url["type"], "text")
+        self.assertEqual(api_base_url["defaultValue"], "https://api.themoviedb.org")
+        self.assertFalse(api_base_url["required"])
 
     def test_publishes_each_plugin_to_its_own_release_and_reuses_existing_release(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

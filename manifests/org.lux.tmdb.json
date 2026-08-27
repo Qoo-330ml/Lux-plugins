@@ -59,18 +59,25 @@
     "sensitive": false,
     "defaultValue": false
   }, {
-    "key": "apiBaseUrl",
+    "key": "apiBaseUrlPreset",
     "label": "TMDb API 地址",
     "type": "select",
     "required": false,
     "sensitive": false,
-    "defaultValue": "https://api.themoviedb.org",
     "description": "仅在启用替代 API 地址时使用；必须是无凭据的 HTTP(S) 地址。",
     "options": [
       {"value": "official", "label": "https://api.themoviedb.org"},
       {"value": "alternate", "label": "https://api.tmdb.org"},
       {"value": "custom", "label": "自定义"}
     ]
+  }, {
+    "key": "apiBaseUrl",
+    "label": "自定义 TMDb API 地址",
+    "type": "text",
+    "required": false,
+    "sensitive": false,
+    "defaultValue": "https://api.themoviedb.org",
+    "description": "选择自定义时填写基础地址；不要附带查询参数或片段。"
   }, {
     "key": "titleAliasReplacementEnabled",
     "label": "标题别名替换",
