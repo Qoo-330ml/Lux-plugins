@@ -19,6 +19,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_USER_COUNT: usize = 10_000;
+const MAX_LIBRARY_FOLDER_COUNT: usize = 1_000;
 const MAX_ITEM_COUNT: usize = 100_000;
 const MAX_ID_LENGTH: usize = 256;
 const MAX_TEXT_LENGTH: usize = 1024;
@@ -77,6 +78,26 @@ pub struct ItemPageRequest {
     pub start_index: u32,
     #[serde(default = "default_page_size")]
     pub limit: u32,
+    #[serde(default)]
+    pub state_filter: Option<UserStateFilter>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UserStateFilter {
+    Played,
+    Favorite,
+    Resumable,
+}
+
+impl UserStateFilter {
+    fn emby_filter(self) -> &'static str {
+        match self {
+            Self::Played => "IsPlayed",
+            Self::Favorite => "IsFavorite",
+            Self::Resumable => "IsResumable",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +140,17 @@ pub struct MigratableUser {
     pub is_administrator: bool,
     pub enable_all_folders: bool,
     pub enabled_folders: Vec<String>,
+    pub enable_remote_access: bool,
+    pub enable_content_downloading: bool,
     pub primary_image_tag: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigratableLibraryFolder {
+    pub id: String,
+    pub name: String,
+    pub locations: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -127,6 +158,7 @@ pub struct MigratableUser {
 pub struct UserPage {
     pub items: Vec<MigratableUser>,
     pub history_capability: HistoryCapability,
+    pub library_folders: Option<Vec<MigratableLibraryFolder>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -279,6 +311,20 @@ struct RawUserPolicy {
     enable_all_folders: bool,
     #[serde(rename = "EnabledFolders", default)]
     enabled_folders: Vec<String>,
+    #[serde(rename = "EnableRemoteAccess", default)]
+    enable_remote_access: bool,
+    #[serde(rename = "EnableContentDownloading", default)]
+    enable_content_downloading: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawLibraryFolder {
+    #[serde(rename = "ItemId")]
+    item_id: Option<String>,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Locations", default)]
+    locations: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -363,6 +409,28 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
     if users.len() > MAX_USER_COUNT {
         return Err(invalid_response());
     }
+    let library_folders = match client
+        .get_json::<Vec<RawLibraryFolder>>("Library/VirtualFolders", &[])
+        .await
+    {
+        Ok(raw_folders) => {
+            if raw_folders.len() > MAX_LIBRARY_FOLDER_COUNT {
+                return Err(invalid_response());
+            }
+            let mut folders = Vec::with_capacity(raw_folders.len());
+            let mut complete = true;
+            for folder in raw_folders {
+                let Some(folder) = map_library_folder(folder) else {
+                    complete = false;
+                    break;
+                };
+                folders.push(folder?);
+            }
+            complete.then_some(folders)
+        }
+        Err(MigrationError::Unsupported) => None,
+        Err(error) => return Err(to_rpc_error(error)),
+    };
     let items = users
         .into_iter()
         .map(map_user)
@@ -370,6 +438,7 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
     serde_json::to_value(UserPage {
         items,
         history_capability: HistoryCapability::ItemState,
+        library_folders,
     })
     .map_err(|_| invalid_response())
 }
@@ -394,6 +463,11 @@ async fn list_items_internal(
     let request: ItemPageRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let limit = request.limit.clamp(1, MAX_PAGE_SIZE);
     let user_id = validate_identifier(&request.user_id).map_err(|_| invalid_request())?;
+    let state_filter = if include_user_data && !person_favorites {
+        Some(request.state_filter.ok_or_else(invalid_request)?)
+    } else {
+        None
+    };
     let client = EmbyClient::new(request.source)
         .await
         .map_err(to_rpc_error)?;
@@ -412,6 +486,9 @@ async fn list_items_internal(
         ("Fields", fields.to_owned()),
         ("IncludeItemTypes", include_item_types.to_owned()),
     ];
+    if let Some(state_filter) = state_filter {
+        query.push(("Filters", state_filter.emby_filter().to_owned()));
+    }
     if person_favorites {
         query.push(("IsFavorite", "true".to_owned()));
     }
@@ -517,10 +594,35 @@ fn map_user(user: RawUser) -> Result<MigratableUser, PluginRpcError> {
             .into_iter()
             .filter_map(|value| valid_text(&value).ok().map(str::to_owned))
             .collect(),
+        enable_remote_access: user.policy.enable_remote_access,
+        enable_content_downloading: user.policy.enable_content_downloading,
         primary_image_tag: user
             .primary_image_tag
             .and_then(|value| valid_text(&value).ok().map(str::to_owned)),
     })
+}
+
+fn map_library_folder(
+    folder: RawLibraryFolder,
+) -> Option<Result<MigratableLibraryFolder, PluginRpcError>> {
+    let id = folder.item_id?;
+    let id = match validate_identifier(&id) {
+        Ok(value) => value.to_owned(),
+        Err(_) => return Some(Err(invalid_response())),
+    };
+    let name = match valid_text(&folder.name) {
+        Ok(value) => value.to_owned(),
+        Err(_) => return Some(Err(invalid_response())),
+    };
+    Some(Ok(MigratableLibraryFolder {
+        id,
+        name,
+        locations: folder
+            .locations
+            .into_iter()
+            .filter_map(|location| valid_text(&location).ok().map(str::to_owned))
+            .collect(),
+    }))
 }
 
 fn map_item(item: RawItem) -> Result<MigratableItem, PluginRpcError> {
@@ -752,6 +854,111 @@ fn to_rpc_error(error: MigrationError) -> PluginRpcError {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn maps_user_policy_permissions_without_granting_lux_admin() {
+        let user = RawUser {
+            id: "user-1".to_owned(),
+            name: "Alice".to_owned(),
+            has_password: true,
+            primary_image_tag: None,
+            policy: RawUserPolicy {
+                is_disabled: false,
+                is_administrator: true,
+                enable_all_folders: false,
+                enabled_folders: vec!["folder-1".to_owned()],
+                enable_remote_access: true,
+                enable_content_downloading: true,
+            },
+        };
+
+        let mapped = map_user(user).expect("user policy should map");
+
+        assert!(mapped.is_administrator);
+        assert!(mapped.enable_remote_access);
+        assert!(mapped.enable_content_downloading);
+    }
+
+    #[test]
+    fn maps_virtual_folder_identity_and_locations() {
+        let mapped = map_library_folder(RawLibraryFolder {
+            item_id: Some("folder-1".to_owned()),
+            name: "Movies".to_owned(),
+            locations: vec!["/media/movies".to_owned()],
+        })
+        .expect("folder with an item ID should map")
+        .expect("folder should be valid");
+
+        assert_eq!(mapped.id, "folder-1");
+        assert_eq!(mapped.name, "Movies");
+        assert_eq!(mapped.locations, vec!["/media/movies"]);
+        assert!(
+            map_library_folder(RawLibraryFolder {
+                item_id: None,
+                name: "Incomplete".to_owned(),
+                locations: Vec::new(),
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn recorded_state_filters_map_to_emby_item_filters() {
+        assert_eq!(UserStateFilter::Played.emby_filter(), "IsPlayed");
+        assert_eq!(UserStateFilter::Favorite.emby_filter(), "IsFavorite");
+        assert_eq!(UserStateFilter::Resumable.emby_filter(), "IsResumable");
+    }
+
+    #[tokio::test]
+    async fn user_state_requests_the_selected_recorded_state_filter() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.expect("request bytes");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            assert!(request.starts_with("GET /Users/user-1/Items?"));
+            assert!(request.contains("Filters=IsPlayed"));
+            let body = r#"{"Items":[],"TotalRecordCount":0,"StartIndex":0}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+
+        let result = user_state(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userId": "user-1",
+            "startIndex": 0,
+            "limit": 100,
+            "stateFilter": "PLAYED",
+        }))
+        .await
+        .expect("filtered state request should succeed");
+
+        assert!(result["items"].as_array().is_some_and(Vec::is_empty));
+        server.await.expect("server should finish");
+    }
 
     #[test]
     fn maps_user_data_without_creating_history_events() {

@@ -485,7 +485,12 @@ fn parse_base_url(value: &str, label: &str) -> Result<Url, DoubanError> {
             "{label} URL must use HTTPS"
         )));
     }
-    if url.host_str().is_none() || url.query().is_some() || url.fragment().is_some() {
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
         return Err(DoubanError::InvalidConfig(format!(
             "{label} URL is invalid"
         )));
@@ -598,6 +603,7 @@ mod tests {
     fn rejects_non_https_remote_endpoints() {
         assert!(parse_base_url("http://douban.example/", "Douban API").is_err());
         assert!(parse_base_url("http://127.0.0.1:8080/", "Douban API").is_ok());
+        assert!(parse_base_url("https://user:secret@douban.example/", "Douban API").is_err());
         assert!(parse_base_url("https://douban.example/?token=secret", "Douban API").is_err());
     }
 

@@ -12,7 +12,7 @@ same version replaces the same asset. Lux validates the ZIP and its manifest bef
 into `/config/plugins`.
 
 The package asset name includes the plugin version and target architecture, for example
-`org.lux.tmdb-0.1.9-linux-x86_64.zip` and `org.lux.tmdb-0.1.9-linux-aarch64.zip`. The Lux host
+`org.lux.tmdb-0.1.10-linux-x86_64.zip` and `org.lux.tmdb-0.1.10-linux-aarch64.zip`. The Lux host
 selects the matching package from `packages` and stores it under its own canonical plugin ZIP
 name after downloading it.
 
