@@ -10,6 +10,8 @@
       "category": "MEDIA",
       "version": "0.1.1",
       "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
       "capabilities": [
         "danmaku.match"
       ],
@@ -18,13 +20,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-0.1.1-linux-aarch64.zip",
-          "sha256": "0e654b85e29a98d5511b2deea99fcd0d0566945985acf92f19b2c5e581a85271"
+          "sha256": "efbeabfbe8943b99300faa9d940a60e04663c2a4e82a33f9fe908ab82504fd2b"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.danmaku/org.lux.danmaku-0.1.1-linux-x86_64.zip",
-          "sha256": "832bf37c0935cff7c66582b5a3bd3ff38245cabbf5b9f68a4fd4a2b26b341f6c"
+          "sha256": "011333794bc1e4abed88c58d728dc83a41101fee4dcbec6436ae86a9b899de55"
         }
       ]
     },
@@ -33,188 +35,12 @@
       "name": "豆瓣元数据插件",
       "description": "从豆瓣提供电影、剧集、图片、人物和预告片元数据。公开搜索无需配置；详情接口可配置豆瓣客户端凭据。",
       "category": "SCRAPER",
-      "version": "0.1.0",
+      "version": "0.1.4",
       "runtime": "process",
-      "capabilities": [
-        "metadata.search",
-        "metadata.get",
-        "metadata.images",
-        "metadata.credits",
-        "metadata.externalIds",
-        "metadata.trailers"
+      "providerKey": "douban",
+      "aliases": [
+        "douban"
       ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-aarch64.zip",
-          "sha256": "f2dd97829585869606868177c7e2427c73cbc4d42f0aa3ffdabe12921910cb00"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.0-linux-x86_64.zip",
-          "sha256": "d3eecaef15a369d8b9ce6044bbbdb9f7fbc18d6007695ea787f130cf2b3641d7"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.emby-migration",
-      "name": "Emby 迁移助手",
-      "description": "从 Emby 迁移用户资料、媒体状态、播放位置、次数、最近播放时间和收藏；仅支持 Emby 到 Lux。",
-      "category": "MIGRATION",
-      "version": "0.1.2",
-      "runtime": "process",
-      "capabilities": [
-        "migration.emby"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-aarch64.zip",
-          "sha256": "14e6fadcc613f647be0a6e8fca1934e58ce4b7d7463783e90eb6517aed040c22"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-x86_64.zip",
-          "sha256": "6acbdc5c8254f71d707a2b2158d04ab3b3911e7d06fe2bd6d9f39cd6406d9686"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.intro-outro-detector",
-      "name": "片头片尾检测",
-      "description": "使用带位误差容忍、对齐和跨分集共识的有界 Chromaprint 指纹识别共同片头和片尾。",
-      "category": "MEDIA",
-      "version": "0.2.0",
-      "runtime": "process",
-      "capabilities": [
-        "chapters.detect"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-aarch64.zip",
-          "sha256": "5d21173713e3baa3cf473e7dcd35c4721ebc0139e6244942e51dfa303c4317ea"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-x86_64.zip",
-          "sha256": "53bbab3604838a756322403244d3e10e04b7a407790cd21ba59cd4f144227f1a"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.ip-hiofd",
-      "name": "IP归属地查询增强",
-      "description": "通过 Hiofd 查询公网 IP 的归属地信息。",
-      "category": "NETWORK",
-      "version": "0.1.0",
-      "runtime": "process",
-      "capabilities": [
-        "ip.location"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-aarch64.zip",
-          "sha256": "3348bca5fe239fed20bd60e23dc526b583eac580dbf769324ce7f5fa13390bf2"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-x86_64.zip",
-          "sha256": "3d122ece54d08d5ee5d7b7727b2eb4cf8face48153ae9187c902fb1cab83e3e4"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.qoo-ip138",
-      "name": "ip138 IP归属地查询",
-      "description": "通过 ipshudi.com 查询公网 IP 的归属地信息。",
-      "category": "NETWORK",
-      "version": "0.1.0",
-      "runtime": "process",
-      "capabilities": [
-        "ip.location"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-aarch64.zip",
-          "sha256": "30c63461fda212e2d9c54769787b868dcdac376e264a769cc9915fd63950e0c7"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-x86_64.zip",
-          "sha256": "b8a051198b5fa2e5b1f9f3f648af61e9f9a20c0e2dbc0af12ccdb0f70667c50a"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.strm-media-info",
-      "name": "strm媒体信息提取",
-      "description": "使用 ffprobe 提取媒体信息，并使用 ffmpeg 补全 STRM 缩略图。",
-      "category": "MEDIA",
-      "version": "0.2.0",
-      "runtime": "process",
-      "capabilities": [
-        "media.probe"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-aarch64.zip",
-          "sha256": "7cc3e1ca83fe18c28596f28c8d73ff774d87f7eec3a677c9c2156b6cfca2421f"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-x86_64.zip",
-          "sha256": "a5886abfb3449775253a8a8ea8d0b5f08a33af75a74265ad5125c79d99114e69"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.theintrodb-chapter-source",
-      "name": "TheIntroDB 片头片尾章节源",
-      "description": "从 TheIntroDB 查询已标注的片头和片尾，并保存为 Lux 特殊章节；不读取视频、不运行 ffmpeg。",
-      "category": "MEDIA",
-      "version": "0.1.0",
-      "runtime": "process",
-      "capabilities": [
-        "chapters.lookup"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-aarch64.zip",
-          "sha256": "546fe575a7f25ba7a488c18e88aa8b52a7e52bd82117b947ecbc4982fb5037ce"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-x86_64.zip",
-          "sha256": "89163c21f120984981603044625b7d078496501cc4a591fc2967652ed2c514a2"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.tmdb",
-      "name": "TMDb 元数据插件",
-      "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
-      "category": "SCRAPER",
-      "version": "0.1.8",
-      "runtime": "process",
       "capabilities": [
         "metadata.search",
         "metadata.get",
@@ -228,14 +54,211 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-aarch64.zip",
-          "sha256": "61619103bb79a5abab1df3e6352ad073bad8dd79698ed3a5694a1756485c6772"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.4-linux-aarch64.zip",
+          "sha256": "315338dda5aff1976a89df028a1885f90240950987c3f923dc30273e7bcbcedf"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.8-linux-x86_64.zip",
-          "sha256": "8c8d5987e9613e892a8d1e7e955b45c8f65f0d083440a78c784a825c3d49535b"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.douban/org.lux.douban-0.1.4-linux-x86_64.zip",
+          "sha256": "7ee8143b12d6c5f78c1307906cb187f63c27e7dd5b332271cd0ab31a177fe467"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.emby-migration",
+      "name": "Emby 迁移助手",
+      "description": "从 Emby 迁移用户资料、媒体状态、播放位置、次数、最近播放时间和收藏；仅支持 Emby 到 Lux。",
+      "category": "MIGRATION",
+      "version": "0.1.2",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "migration.emby"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-aarch64.zip",
+          "sha256": "abddaa09c0ecd14d5450bad4a9260143f4d0a19a3534ec968fa441e26351a2f2"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.emby-migration/org.lux.emby-migration-0.1.2-linux-x86_64.zip",
+          "sha256": "b587c81162f1515f37e0e792b0f7839b186506a0a3dbc5ce87d8493e1c9c24d6"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.intro-outro-detector",
+      "name": "片头片尾检测",
+      "description": "使用带位误差容忍、对齐和跨分集共识的有界 Chromaprint 指纹识别共同片头和片尾。",
+      "category": "MEDIA",
+      "version": "0.2.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "chapters.detect"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-aarch64.zip",
+          "sha256": "ead59840e949a6537c5c8838a472fd932b0fb022058dd00b2a068e286bbe64e4"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.intro-outro-detector/org.lux.intro-outro-detector-0.2.0-linux-x86_64.zip",
+          "sha256": "eb48ba904722768fdb281d76cbab43e5f4146de5b981812595c86919725fa559"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.ip-hiofd",
+      "name": "IP归属地查询增强",
+      "description": "通过 Hiofd 查询公网 IP 的归属地信息。",
+      "category": "NETWORK",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "ip.location"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-aarch64.zip",
+          "sha256": "e0a3531e99a5a3fb3309117aef166bff7bc49ed7576ff76fcf17c1209bbb4557"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.ip-hiofd/org.lux.ip-hiofd-0.1.0-linux-x86_64.zip",
+          "sha256": "08dc9b2bfd48c18e653d70417ac3e935c6163a21fe908a1f98995760592e1e34"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.qoo-ip138",
+      "name": "ip138 IP归属地查询",
+      "description": "通过 ipshudi.com 查询公网 IP 的归属地信息。",
+      "category": "NETWORK",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "ip.location"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-aarch64.zip",
+          "sha256": "471a6fefb362d7a2663374aca901e3fc09841d4d2cde401a483485526350f2dd"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.qoo-ip138/org.lux.qoo-ip138-0.1.0-linux-x86_64.zip",
+          "sha256": "0b8e855cda0661eff1321bf4e1c655b766e78536b6d330605b858a3c1968180e"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.strm-media-info",
+      "name": "strm媒体信息提取",
+      "description": "使用 ffprobe 提取媒体信息，并使用 ffmpeg 补全 STRM 缩略图。",
+      "category": "MEDIA",
+      "version": "0.2.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "media.probe"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-aarch64.zip",
+          "sha256": "60906e2f2dcd7906ec86b81e8d0ea35ec8fe9875c089c4ebca20e5bb65c067c1"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.0-linux-x86_64.zip",
+          "sha256": "20749b1eff0e9ea10fb225a10b701b281e95207d08b5ced7ff98904c7465d4a8"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.theintrodb-chapter-source",
+      "name": "TheIntroDB 片头片尾章节源",
+      "description": "从 TheIntroDB 查询已标注的片头和片尾，并保存为 Lux 特殊章节；不读取视频、不运行 ffmpeg。",
+      "category": "MEDIA",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "chapters.lookup"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-aarch64.zip",
+          "sha256": "1421532a0bbd02b35e4e321bf71e65b37bdb1338a736c80b84695252460a1a03"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.theintrodb-chapter-source/org.lux.theintrodb-chapter-source-0.1.0-linux-x86_64.zip",
+          "sha256": "7acbdea3649882e77657182d06884b432a1fbe74961dc9ed92bb989a2bb0dcbb"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.tmdb",
+      "name": "TMDb 元数据插件",
+      "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
+      "category": "SCRAPER",
+      "version": "0.1.9",
+      "runtime": "process",
+      "providerKey": "tmdb",
+      "aliases": [
+        "tmdb"
+      ],
+      "capabilities": [
+        "metadata.search",
+        "metadata.get",
+        "metadata.bundle",
+        "metadata.images",
+        "metadata.credits",
+        "metadata.externalIds",
+        "metadata.trailers"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.9-linux-aarch64.zip",
+          "sha256": "32a98a8ba96f5c899ef81af986289c0980007bb795782b90be1793e99b980852"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.9-linux-x86_64.zip",
+          "sha256": "a77fb201146ed4e4b97ab49e3b3cfed49981463a80bde0f75a1491096253977b"
         }
       ]
     },
@@ -246,6 +269,8 @@
       "category": "NOTIFICATION",
       "version": "0.1.0",
       "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
       "capabilities": [
         "notification.send"
       ],
@@ -254,13 +279,13 @@
           "platform": "linux",
           "arch": "aarch64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.0-linux-aarch64.zip",
-          "sha256": "c305cfcbd101efacf14f79d89c53a7f9e672beb5ade19538318da10613af723b"
+          "sha256": "6a06781398f5effe08a3a24e00db8b40dc0e02b17e1810f5c94179a3357db037"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.0-linux-x86_64.zip",
-          "sha256": "1661f41cd0bef2f0e7ce1022000dd2ec415d02531530cba8a9cbb920e8dfa783"
+          "sha256": "5a094a1ff7ab1e7cfd0ae1191083c05785285040995e61bd9fe73ba72f600db3"
         }
       ]
     }
