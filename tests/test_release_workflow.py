@@ -15,6 +15,34 @@ INDEX_SCRIPT = ROOT / "scripts" / "generate-index.py"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_tmdb_manifest_exposes_selectable_language_and_api_options(self):
+        manifest = json.loads((ROOT / "manifests/org.lux.tmdb.json").read_text())
+        fields = {field["key"]: field for field in manifest["configFields"]}
+
+        preferred_language = fields["preferredLanguage"]
+        self.assertEqual(preferred_language["type"], "select")
+        self.assertEqual(preferred_language["options"][0], {"value": "zh-CN", "label": "简体中文"})
+        self.assertEqual(
+            [option["value"] for option in preferred_language["options"][:4]],
+            ["zh-CN", "zh-SG", "zh-HK", "zh-TW"],
+        )
+        self.assertGreater(len(preferred_language["options"]), 4)
+
+        fallback_languages = fields["fallbackLanguages"]
+        self.assertEqual(fallback_languages["type"], "select")
+        self.assertTrue(fallback_languages["multiple"])
+        self.assertEqual(
+            [option["value"] for option in fallback_languages["options"][:4]],
+            ["zh-CN", "zh-SG", "zh-HK", "zh-TW"],
+        )
+
+        api_base_url = fields["apiBaseUrl"]
+        self.assertEqual(api_base_url["type"], "select")
+        self.assertEqual(
+            [option["value"] for option in api_base_url["options"]],
+            ["official", "alternate", "custom"],
+        )
+
     def test_publishes_each_plugin_to_its_own_release_and_reuses_existing_release(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
