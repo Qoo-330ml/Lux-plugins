@@ -49,6 +49,8 @@ Emby DLL; the default remains the currently supported WeChat-compatible endpoint
 
 `org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only
 bounded raw Chromaprint point sequences selected by Lux for at least two episodes in one season.
+Its manifest declares `supportedMediaSourceKinds: ["LOCAL_FILE"]`; this declaration controls which
+host media sources become candidates and does not expose paths to the plugin.
 Each Base64 payload is a little-endian sequence of `uint32` fingerprint points; one point represents
 `1,238,095` ticks. The detector compares aligned points with a bounded Hamming-distance tolerance,
 requires a non-trivial shared sequence, and uses support across the available episodes before
@@ -62,7 +64,9 @@ Emby-compatible chapter output.
 `org.lux.theintrodb-chapter-source` is an independent online chapter source. It queries
 [TheIntroDB](https://theintrodb.org/) using stored TMDb, TVDb, or IMDb metadata, season/episode numbers,
 and optional runtime. It receives no media path, URL, audio fingerprint, or task object, and never runs
-ffmpeg or ffprobe. Empty upstream results preserve existing chapters. Its exact boundary and configuration
+ffmpeg or ffprobe. Its manifest declares `supportedMediaSourceKinds: ["LOCAL_FILE", "STRM_URL"]`;
+the host uses that declaration to include local and `.strm` entries without sending either path or URL.
+Empty upstream results preserve existing chapters. Its exact boundary and configuration
 are documented in `README-theintrodb.md`.
 
 ## Webhook 通知器

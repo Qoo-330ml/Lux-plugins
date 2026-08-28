@@ -8,6 +8,7 @@
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "chapter_detector",
   "category": "MEDIA",
+  "supportedMediaSourceKinds": ["LOCAL_FILE", "STRM_URL"],
   "supportedItemTypes": ["Episode"],
   "capabilities": ["chapters.lookup"],
   "configFields": [
