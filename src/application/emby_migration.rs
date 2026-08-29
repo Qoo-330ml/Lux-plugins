@@ -9,6 +9,7 @@ use reqwest::{Client, StatusCode, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::lookup_host;
+use tokio::task::JoinSet;
 
 use crate::{
     application::plugin_protocol::PluginRpcError,
@@ -19,6 +20,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_USER_COUNT: usize = 10_000;
+const MAX_USER_READ_CONCURRENCY: usize = 8;
 const MAX_LIBRARY_FOLDER_COUNT: usize = 1_000;
 const MAX_ITEM_COUNT: usize = 100_000;
 const MAX_ID_LENGTH: usize = 256;
@@ -577,6 +579,56 @@ fn serialize_user_page(page: UserPage) -> Result<Value, PluginRpcError> {
     serde_json::to_value(page).map_err(|_| invalid_response())
 }
 
+async fn fetch_selected_users(
+    client: &EmbyClient,
+    user_ids: Vec<String>,
+    fields_query: Option<String>,
+) -> Result<Vec<RawUser>, PluginRpcError> {
+    let mut users = vec![None; user_ids.len()];
+    let mut pending = JoinSet::new();
+    let mut next_index = 0;
+    while next_index < user_ids.len() || !pending.is_empty() {
+        while next_index < user_ids.len() && pending.len() < MAX_USER_READ_CONCURRENCY {
+            let index = next_index;
+            let user_id = user_ids[index].clone();
+            let client = client.clone();
+            let fields_query = fields_query.clone();
+            pending.spawn(async move {
+                let query = fields_query
+                    .as_deref()
+                    .filter(|fields| !fields.is_empty())
+                    .map(|fields| vec![("Fields", fields.to_owned())])
+                    .unwrap_or_default();
+                let user = client
+                    .get_json::<RawUser>(&format!("Users/{user_id}"), &query)
+                    .await
+                    .map_err(to_rpc_error)?;
+                Ok::<_, PluginRpcError>((index, user))
+            });
+            next_index += 1;
+        }
+
+        let Some(result) = pending.join_next().await else {
+            break;
+        };
+        match result {
+            Ok(Ok((index, user))) => users[index] = Some(user),
+            Ok(Err(error)) => {
+                pending.abort_all();
+                return Err(error);
+            }
+            Err(_) => {
+                pending.abort_all();
+                return Err(PluginRpcError {
+                    code: "PLUGIN_INTERNAL_ERROR".to_owned(),
+                    message: "Emby user request failed".to_owned(),
+                });
+            }
+        }
+    }
+    Ok(users.into_iter().flatten().collect())
+}
+
 pub async fn test_connection(params: Value) -> Result<Value, PluginRpcError> {
     let request: SourceRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let client = EmbyClient::new(request.source)
@@ -638,21 +690,7 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
             .join(",")
     });
     let mut users = if let Some(user_ids) = user_ids {
-        let mut users = Vec::with_capacity(user_ids.len());
-        for user_id in user_ids {
-            let query = fields_query
-                .as_deref()
-                .filter(|fields| !fields.is_empty())
-                .map(|fields| vec![("Fields", fields.to_owned())])
-                .unwrap_or_default();
-            users.push(
-                client
-                    .get_json::<RawUser>(&format!("Users/{user_id}"), &query)
-                    .await
-                    .map_err(to_rpc_error)?,
-            );
-        }
-        users
+        fetch_selected_users(&client, user_ids, fields_query.clone()).await?
     } else {
         let mut query = Vec::new();
         if let Some(start_index) = start_index {
@@ -1370,6 +1408,78 @@ mod response_tests {
         assert!(user.get("isDisabled").is_none());
         assert!(user.get("primaryImageTag").is_none());
         assert!(result["libraryFolders"].is_null());
+        server.await.expect("server should finish");
+    }
+
+    #[tokio::test]
+    async fn selected_user_reads_are_parallel_but_bounded() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::task::JoinSet;
+        use tokio::time::{Duration, sleep};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let server = tokio::spawn({
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            async move {
+                let mut connections = JoinSet::new();
+                for _ in 0..16 {
+                    let (mut stream, _) = listener.accept().await.expect("request");
+                    let active = Arc::clone(&active);
+                    let peak = Arc::clone(&peak);
+                    connections.spawn(async move {
+                        let mut request = Vec::new();
+                        let mut buffer = [0_u8; 1024];
+                        loop {
+                            let read = stream.read(&mut buffer).await.expect("request bytes");
+                            request.extend_from_slice(&buffer[..read]);
+                            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                        let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(current, Ordering::SeqCst);
+                        sleep(Duration::from_millis(20)).await;
+                        let body = r#"{"Id":"selected","Name":"Selected"}"#;
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(response.as_bytes()).await.expect("response");
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    });
+                }
+                while connections.join_next().await.is_some() {}
+            }
+        });
+
+        let user_ids = (0..16)
+            .map(|index| format!("user-{index}"))
+            .collect::<Vec<_>>();
+        let result = list_users(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userIds": user_ids,
+            "userFields": ["id", "name"],
+        }))
+        .await
+        .expect("bounded user reads should succeed");
+
+        assert_eq!(result["items"].as_array().map(Vec::len), Some(16));
+        assert!(peak.load(Ordering::SeqCst) > 1);
+        assert!(peak.load(Ordering::SeqCst) <= 8);
         server.await.expect("server should finish");
     }
 
