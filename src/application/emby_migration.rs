@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt,
     net::{IpAddr, SocketAddr},
     time::Duration,
@@ -446,10 +446,13 @@ fn validate_user_ids(user_ids: Option<Vec<String>>) -> Result<Option<Vec<String>
         return Err(invalid_request());
     }
     let mut validated = Vec::with_capacity(user_ids.len());
+    let mut seen = HashSet::<String>::with_capacity(user_ids.len());
     for user_id in user_ids {
-        let user_id = validate_identifier(&user_id).map_err(|_| invalid_request())?;
-        if !validated.iter().any(|value: &String| value == user_id) {
-            validated.push(user_id.to_owned());
+        let user_id = validate_identifier(&user_id)
+            .map_err(|_| invalid_request())?
+            .to_owned();
+        if seen.insert(user_id.clone()) {
+            validated.push(user_id);
         }
     }
     Ok(Some(validated))
@@ -487,6 +490,19 @@ fn emby_user_field(field: UserField) -> Option<&'static str> {
         UserField::LibraryFolders => return None,
         UserField::PrimaryImageTag => "PrimaryImageTag",
     })
+}
+
+fn emby_user_fields_query(fields: &[UserField]) -> String {
+    let mut names = Vec::with_capacity(fields.len());
+    for field in fields {
+        let Some(name) = emby_user_field(*field) else {
+            continue;
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.join(",")
 }
 
 fn user_field_selected(fields: Option<&[UserField]>, field: UserField) -> bool {
@@ -682,13 +698,7 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
         user_fields: _,
     } = request;
     let client = EmbyClient::new(source).await.map_err(to_rpc_error)?;
-    let fields_query = user_fields.as_deref().map(|fields| {
-        fields
-            .iter()
-            .filter_map(|field| emby_user_field(*field))
-            .collect::<Vec<_>>()
-            .join(",")
-    });
+    let fields_query = user_fields.as_deref().map(emby_user_fields_query);
     let mut users = if let Some(user_ids) = user_ids {
         fetch_selected_users(&client, user_ids, fields_query.clone()).await?
     } else {
@@ -1260,6 +1270,25 @@ fn to_rpc_error(error: MigrationError) -> PluginRpcError {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn user_fields_query_deduplicates_emby_field_names() {
+        let fields = normalize_user_fields(Some(vec![
+            UserField::Id,
+            UserField::Name,
+            UserField::EnableAllFolders,
+            UserField::EnabledFolders,
+            UserField::IsDisabled,
+            UserField::PrimaryImageTag,
+        ]))
+        .expect("valid user fields")
+        .expect("provided user fields");
+
+        assert_eq!(
+            emby_user_fields_query(&fields),
+            "Id,Name,Policy,PrimaryImageTag"
+        );
+    }
 
     #[test]
     fn maps_user_policy_permissions_without_granting_lux_admin() {
