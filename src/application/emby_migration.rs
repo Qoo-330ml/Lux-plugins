@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt,
     net::{IpAddr, SocketAddr},
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -9,7 +10,7 @@ use reqwest::{Client, StatusCode, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::lookup_host;
-use tokio::task::JoinSet;
+use tokio::{sync::Mutex, task::JoinSet};
 
 use crate::{
     application::plugin_protocol::PluginRpcError,
@@ -62,7 +63,7 @@ impl fmt::Display for MigrationInputError {
 
 impl std::error::Error for MigrationInputError {}
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmbySource {
     pub base_url: String,
@@ -271,6 +272,52 @@ struct EmbyClient {
     client: Client,
     base_url: Url,
     api_key: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EmbyClientCacheKey {
+    base_url: String,
+    api_key: String,
+    allow_private_network: bool,
+}
+
+impl From<&EmbySource> for EmbyClientCacheKey {
+    fn from(source: &EmbySource) -> Self {
+        Self {
+            base_url: source.base_url.clone(),
+            api_key: source.api_key.clone(),
+            allow_private_network: source.allow_private_network,
+        }
+    }
+}
+
+struct CachedEmbyClient {
+    key: EmbyClientCacheKey,
+    client: EmbyClient,
+}
+
+// The plugin process handles many migration pages over one long-lived RPC
+// session. Reuse the validated HTTP client for the current source so every
+// page does not repeat DNS resolution, socket address validation, and
+// reqwest client construction. The key includes all source security inputs,
+// so changing the endpoint, token, or private-network approval invalidates it.
+static EMBY_CLIENT_CACHE: OnceLock<Mutex<Option<CachedEmbyClient>>> = OnceLock::new();
+
+async fn cached_emby_client(source: EmbySource) -> Result<EmbyClient, MigrationError> {
+    let key = EmbyClientCacheKey::from(&source);
+    let cache = EMBY_CLIENT_CACHE.get_or_init(|| Mutex::new(None));
+    let mut cached = cache.lock().await;
+    if let Some(entry) = cached.as_ref()
+        && entry.key == key
+    {
+        return Ok(entry.client.clone());
+    }
+    let client = EmbyClient::new(source).await?;
+    *cached = Some(CachedEmbyClient {
+        key,
+        client: client.clone(),
+    });
+    Ok(client)
 }
 
 impl EmbyClient {
@@ -647,7 +694,7 @@ async fn fetch_selected_users(
 
 pub async fn test_connection(params: Value) -> Result<Value, PluginRpcError> {
     let request: SourceRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
-    let client = EmbyClient::new(request.source)
+    let client = cached_emby_client(request.source)
         .await
         .map_err(to_rpc_error)?;
     let public: RawSystemInfo = client
@@ -697,7 +744,7 @@ pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
         user_ids: _,
         user_fields: _,
     } = request;
-    let client = EmbyClient::new(source).await.map_err(to_rpc_error)?;
+    let client = cached_emby_client(source).await.map_err(to_rpc_error)?;
     let fields_query = user_fields.as_deref().map(emby_user_fields_query);
     let mut users = if let Some(user_ids) = user_ids {
         fetch_selected_users(&client, user_ids, fields_query.clone()).await?
@@ -838,7 +885,7 @@ async fn list_items_internal(
     } else {
         None
     };
-    let client = EmbyClient::new(request.source)
+    let client = cached_emby_client(request.source)
         .await
         .map_err(to_rpc_error)?;
     // Person favorites are already filtered by the IsFavorite query and the
@@ -954,7 +1001,7 @@ pub async fn authenticate_user(params: Value) -> Result<Value, PluginRpcError> {
     {
         return Err(invalid_request());
     }
-    let client = EmbyClient::new(request.source)
+    let client = cached_emby_client(request.source)
         .await
         .map_err(to_rpc_error)?;
     let raw: RawAuthenticationResponse = client
@@ -1270,6 +1317,32 @@ fn to_rpc_error(error: MigrationError) -> PluginRpcError {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn emby_client_cache_key_includes_endpoint_token_and_network_policy() {
+        let source = EmbySource {
+            base_url: "https://emby.example.test/".to_owned(),
+            api_key: "key-a".to_owned(),
+            allow_private_network: false,
+        };
+        let same_source = EmbyClientCacheKey::from(&source);
+        assert_eq!(same_source, EmbyClientCacheKey::from(&source));
+
+        let mut changed_token = source.clone();
+        changed_token.api_key = "key-b".to_owned();
+        assert_ne!(same_source, EmbyClientCacheKey::from(&changed_token));
+
+        let mut changed_endpoint = source.clone();
+        changed_endpoint.base_url = "https://other.example.test/".to_owned();
+        assert_ne!(same_source, EmbyClientCacheKey::from(&changed_endpoint));
+
+        let mut changed_network_policy = source;
+        changed_network_policy.allow_private_network = true;
+        assert_ne!(
+            same_source,
+            EmbyClientCacheKey::from(&changed_network_policy)
+        );
+    }
 
     #[test]
     fn user_fields_query_deduplicates_emby_field_names() {
