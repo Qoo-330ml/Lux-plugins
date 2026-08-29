@@ -831,6 +831,10 @@ async fn list_items_internal(
     let client = EmbyClient::new(request.source)
         .await
         .map_err(to_rpc_error)?;
+    // Person favorites are already filtered by the IsFavorite query and the
+    // mapper supplies a true favorite flag when Emby omits UserData. Avoid
+    // requesting the complete UserData payload for this path.
+    let include_user_data = include_user_data && !person_favorites;
     let path = format!("Users/{user_id}/Items");
     let mut fields = vec![
         "ProviderIds",
@@ -888,6 +892,8 @@ async fn list_items_internal(
     if raw.items.len() > MAX_ITEM_COUNT {
         return Err(invalid_response());
     }
+    let raw_item_count = u32::try_from(raw.items.len()).map_err(|_| invalid_response())?;
+    let raw_total_record_count = raw.total_record_count;
     let mut items = Vec::with_capacity(raw.items.len());
     for item in raw.items {
         if person_favorites {
@@ -909,15 +915,19 @@ async fn list_items_internal(
         }
     }
     let start_index = raw.start_index.unwrap_or(request.start_index);
-    let next_start_index = if items.len() as u32 >= limit {
-        Some(start_index.saturating_add(items.len() as u32))
-    } else {
-        None
-    };
+    // Advance according to the upstream page size, not the number of records
+    // retained after projection. A filtered-out or malformed record must not
+    // make a later page disappear from the migration.
+    let next_start = start_index.saturating_add(raw_item_count);
+    let has_more =
+        raw_total_record_count.is_some_and(|total| next_start < total) || raw_item_count >= limit;
+    let next_start_index = has_more
+        .then_some(next_start)
+        .filter(|next| *next > start_index);
     serde_json::to_value(ItemPage {
         items,
         start_index,
-        total_record_count: raw.total_record_count,
+        total_record_count: raw_total_record_count,
         next_start_index,
         history_capability: HistoryCapability::ItemState,
     })
@@ -1537,6 +1547,68 @@ mod response_tests {
         assert!(user_data.get("played").is_none());
         assert!(user_data.get("playCount").is_none());
         assert!(user_data.get("playbackPositionTicks").is_none());
+        server.await.expect("server should finish");
+    }
+
+    #[tokio::test]
+    async fn person_favorites_omit_user_data_and_advance_by_raw_page_size() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.expect("request bytes");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            assert!(request.contains("IncludeItemTypes=Person"));
+            assert!(request.contains("IsFavorite=true"));
+            assert!(request.contains("EnableUserData=false"));
+            let fields = request
+                .split("Fields=")
+                .nth(1)
+                .and_then(|value| value.split('&').next())
+                .expect("Fields query");
+            assert!(!fields.contains("UserData"));
+            let body = r#"{"Items":[
+                {"Id":"not-favorite","Name":"Not Favorite","Type":"Person","UserData":{"IsFavorite":false}},
+                {"Id":"favorite","Name":"Favorite","Type":"Person"}
+            ],"TotalRecordCount":3,"StartIndex":0}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+
+        let result = person_favorites(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userId": "user-1",
+            "startIndex": 0,
+            "limit": 2,
+        }))
+        .await
+        .expect("person favorites request should succeed");
+
+        assert_eq!(result["items"].as_array().map(Vec::len), Some(1));
+        assert_eq!(result["items"][0]["id"], "favorite");
+        assert_eq!(result["nextStartIndex"], 2);
         server.await.expect("server should finish");
     }
 
