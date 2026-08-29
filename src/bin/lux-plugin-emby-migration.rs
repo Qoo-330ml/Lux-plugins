@@ -57,7 +57,8 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "apiVersion": 1,
             "capabilities": [EMBY_MIGRATION_CAPABILITY],
             "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "Person"],
-            "historyCapability": "ITEM_STATE"
+            "historyCapability": "ITEM_STATE",
+            "supportsFilteredReads": true
         })),
         "plugin.health" => Ok(json!({
             "available": true,

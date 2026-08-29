@@ -80,6 +80,10 @@ pub struct ItemPageRequest {
     pub limit: u32,
     #[serde(default)]
     pub state_filter: Option<UserStateFilter>,
+    #[serde(default)]
+    pub state_fields: Option<Vec<UserStateField>>,
+    #[serde(default)]
+    pub source_library_ids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -98,6 +102,48 @@ impl UserStateFilter {
             Self::Resumable => "IsResumable",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum UserStateField {
+    Played,
+    PlayCount,
+    LastPlayedDate,
+    IsFavorite,
+    PlaybackPositionTicks,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum UserField {
+    Id,
+    Name,
+    HasPassword,
+    IsDisabled,
+    IsAdministrator,
+    EnableRemoteAccess,
+    EnableContentDownloading,
+    EnableAllFolders,
+    EnabledFolders,
+    LibraryFolders,
+    PrimaryImageTag,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListUsersRequest {
+    pub source: EmbySource,
+    #[serde(default)]
+    pub start_index: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub user_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub user_fields: Option<Vec<UserField>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +174,7 @@ pub struct ConnectionInfo {
     pub version: Option<String>,
     pub server_id: Option<String>,
     pub history_capability: HistoryCapability,
+    pub supports_filtered_reads: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -156,9 +203,16 @@ pub struct MigratableLibraryFolder {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserPage {
-    pub items: Vec<MigratableUser>,
+    pub items: Vec<Value>,
     pub history_capability: HistoryCapability,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub library_folders: Option<Vec<MigratableLibraryFolder>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_record_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_start_index: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -180,10 +234,15 @@ pub struct MigratableItem {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MigratableUserData {
-    pub playback_position_ticks: i64,
-    pub played: bool,
-    pub is_favorite: bool,
-    pub play_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playback_position_ticks: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub played: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_favorite: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub play_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_played_date: Option<String>,
 }
 
@@ -287,7 +346,7 @@ struct RawSystemInfo {
     server_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct RawUser {
     #[serde(rename = "Id")]
     id: String,
@@ -301,7 +360,7 @@ struct RawUser {
     policy: RawUserPolicy,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 struct RawUserPolicy {
     #[serde(rename = "IsDisabled", default)]
     is_disabled: bool,
@@ -377,6 +436,147 @@ struct RawUserData {
     last_played_date: Option<String>,
 }
 
+fn validate_user_ids(user_ids: Option<Vec<String>>) -> Result<Option<Vec<String>>, PluginRpcError> {
+    let Some(user_ids) = user_ids else {
+        return Ok(None);
+    };
+    if user_ids.len() > MAX_USER_COUNT {
+        return Err(invalid_request());
+    }
+    let mut validated = Vec::with_capacity(user_ids.len());
+    for user_id in user_ids {
+        let user_id = validate_identifier(&user_id).map_err(|_| invalid_request())?;
+        if !validated.iter().any(|value: &String| value == user_id) {
+            validated.push(user_id.to_owned());
+        }
+    }
+    Ok(Some(validated))
+}
+
+fn normalize_user_fields(
+    user_fields: Option<Vec<UserField>>,
+) -> Result<Option<Vec<UserField>>, PluginRpcError> {
+    let Some(mut user_fields) = user_fields else {
+        return Ok(None);
+    };
+    if user_fields.len() > 32 {
+        return Err(invalid_request());
+    }
+    if !user_fields.contains(&UserField::Id) {
+        user_fields.push(UserField::Id);
+    }
+    if !user_fields.contains(&UserField::Name) {
+        user_fields.push(UserField::Name);
+    }
+    Ok(Some(user_fields))
+}
+
+fn emby_user_field(field: UserField) -> Option<&'static str> {
+    Some(match field {
+        UserField::Id => "Id",
+        UserField::Name => "Name",
+        UserField::HasPassword => "HasPassword",
+        UserField::IsDisabled
+        | UserField::IsAdministrator
+        | UserField::EnableRemoteAccess
+        | UserField::EnableContentDownloading
+        | UserField::EnableAllFolders
+        | UserField::EnabledFolders => "Policy",
+        UserField::LibraryFolders => return None,
+        UserField::PrimaryImageTag => "PrimaryImageTag",
+    })
+}
+
+fn user_field_selected(fields: Option<&[UserField]>, field: UserField) -> bool {
+    fields.is_none_or(|fields| fields.contains(&field))
+}
+
+fn project_user(user: MigratableUser, fields: Option<&[UserField]>) -> Value {
+    let mut object = serde_json::Map::new();
+    if user_field_selected(fields, UserField::Id) {
+        object.insert("id".to_owned(), Value::String(user.id));
+    }
+    if user_field_selected(fields, UserField::Name) {
+        object.insert("name".to_owned(), Value::String(user.name));
+    }
+    if user_field_selected(fields, UserField::HasPassword) {
+        object.insert("hasPassword".to_owned(), Value::Bool(user.has_password));
+    }
+    if user_field_selected(fields, UserField::IsDisabled) {
+        object.insert("isDisabled".to_owned(), Value::Bool(user.is_disabled));
+    }
+    if user_field_selected(fields, UserField::IsAdministrator) {
+        object.insert(
+            "isAdministrator".to_owned(),
+            Value::Bool(user.is_administrator),
+        );
+    }
+    if user_field_selected(fields, UserField::EnableAllFolders) {
+        object.insert(
+            "enableAllFolders".to_owned(),
+            Value::Bool(user.enable_all_folders),
+        );
+    }
+    if user_field_selected(fields, UserField::EnabledFolders) {
+        object.insert(
+            "enabledFolders".to_owned(),
+            Value::Array(
+                user.enabled_folders
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            ),
+        );
+    }
+    if user_field_selected(fields, UserField::EnableRemoteAccess) {
+        object.insert(
+            "enableRemoteAccess".to_owned(),
+            Value::Bool(user.enable_remote_access),
+        );
+    }
+    if user_field_selected(fields, UserField::EnableContentDownloading) {
+        object.insert(
+            "enableContentDownloading".to_owned(),
+            Value::Bool(user.enable_content_downloading),
+        );
+    }
+    if user_field_selected(fields, UserField::PrimaryImageTag) {
+        object.insert(
+            "primaryImageTag".to_owned(),
+            user.primary_image_tag.map_or(Value::Null, Value::String),
+        );
+    }
+    Value::Object(object)
+}
+
+fn project_item_user_data(item: &mut MigratableItem, fields: Option<&[UserStateField]>) {
+    let Some(data) = item.user_data.as_mut() else {
+        return;
+    };
+    let Some(fields) = fields else {
+        return;
+    };
+    if !fields.contains(&UserStateField::PlaybackPositionTicks) {
+        data.playback_position_ticks = None;
+    }
+    if !fields.contains(&UserStateField::Played) {
+        data.played = None;
+    }
+    if !fields.contains(&UserStateField::IsFavorite) {
+        data.is_favorite = None;
+    }
+    if !fields.contains(&UserStateField::PlayCount) {
+        data.play_count = None;
+    }
+    if !fields.contains(&UserStateField::LastPlayedDate) {
+        data.last_played_date = None;
+    }
+}
+
+fn serialize_user_page(page: UserPage) -> Result<Value, PluginRpcError> {
+    serde_json::to_value(page).map_err(|_| invalid_response())
+}
+
 pub async fn test_connection(params: Value) -> Result<Value, PluginRpcError> {
     let request: SourceRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let client = EmbyClient::new(request.source)
@@ -396,51 +596,149 @@ pub async fn test_connection(params: Value) -> Result<Value, PluginRpcError> {
         version: authenticated.version.or(public.version),
         server_id: authenticated.server_id.or(public.server_id),
         history_capability: HistoryCapability::ItemState,
+        supports_filtered_reads: true,
     };
     serde_json::to_value(info).map_err(|_| invalid_response())
 }
 
 pub async fn list_users(params: Value) -> Result<Value, PluginRpcError> {
-    let request: SourceRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
-    let client = EmbyClient::new(request.source)
-        .await
-        .map_err(to_rpc_error)?;
-    let users: Vec<RawUser> = client.get_json("Users", &[]).await.map_err(to_rpc_error)?;
+    let request: ListUsersRequest =
+        serde_json::from_value(params).map_err(|_| invalid_request())?;
+    let user_fields = normalize_user_fields(request.user_fields)?;
+    let user_ids = validate_user_ids(request.user_ids)?;
+    let should_read_library_folders = user_fields
+        .as_deref()
+        .is_none_or(|fields| fields.contains(&UserField::LibraryFolders));
+
+    if user_ids.as_deref().is_some_and(|ids| ids.is_empty()) {
+        return serialize_user_page(UserPage {
+            items: Vec::new(),
+            history_capability: HistoryCapability::ItemState,
+            library_folders: None,
+            start_index: Some(0),
+            total_record_count: Some(0),
+            next_start_index: None,
+        });
+    }
+
+    let ListUsersRequest {
+        source,
+        start_index,
+        limit,
+        search,
+        user_ids: _,
+        user_fields: _,
+    } = request;
+    let client = EmbyClient::new(source).await.map_err(to_rpc_error)?;
+    let fields_query = user_fields.as_deref().map(|fields| {
+        fields
+            .iter()
+            .filter_map(|field| emby_user_field(*field))
+            .collect::<Vec<_>>()
+            .join(",")
+    });
+    let mut users = if let Some(user_ids) = user_ids {
+        let mut users = Vec::with_capacity(user_ids.len());
+        for user_id in user_ids {
+            let query = fields_query
+                .as_deref()
+                .filter(|fields| !fields.is_empty())
+                .map(|fields| vec![("Fields", fields.to_owned())])
+                .unwrap_or_default();
+            users.push(
+                client
+                    .get_json::<RawUser>(&format!("Users/{user_id}"), &query)
+                    .await
+                    .map_err(to_rpc_error)?,
+            );
+        }
+        users
+    } else {
+        let mut query = Vec::new();
+        if let Some(start_index) = start_index {
+            query.push(("StartIndex", start_index.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("Limit", limit.clamp(1, MAX_PAGE_SIZE).to_string()));
+        }
+        if let Some(search) = search.as_deref().filter(|value| !value.trim().is_empty()) {
+            query.push(("SearchTerm", search.trim().to_owned()));
+        }
+        if let Some(fields) = fields_query.as_deref().filter(|fields| !fields.is_empty()) {
+            query.push(("Fields", fields.to_owned()));
+        }
+        client
+            .get_json::<Vec<RawUser>>("Users", &query)
+            .await
+            .map_err(to_rpc_error)?
+    };
     if users.len() > MAX_USER_COUNT {
         return Err(invalid_response());
     }
-    let library_folders = match client
-        .get_json::<Vec<RawLibraryFolder>>("Library/VirtualFolders", &[])
-        .await
-    {
-        Ok(raw_folders) => {
-            if raw_folders.len() > MAX_LIBRARY_FOLDER_COUNT {
-                return Err(invalid_response());
+    let search = search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase);
+    if let Some(search) = search.as_deref() {
+        users.retain(|user| user.name.to_lowercase().contains(search));
+    }
+    let total_record_count = u32::try_from(users.len()).map_err(|_| invalid_response())?;
+    let (start_index, next_start_index) = if let Some(start_index) = start_index {
+        let limit = limit
+            .unwrap_or_else(default_page_size)
+            .clamp(1, MAX_PAGE_SIZE);
+        let start = usize::try_from(start_index).map_err(|_| invalid_request())?;
+        let end = start.saturating_add(limit as usize).min(users.len());
+        let next = (end < users.len())
+            .then(|| u32::try_from(end).ok())
+            .flatten();
+        users = users.get(start..end).unwrap_or_default().to_vec();
+        (Some(start_index), next)
+    } else {
+        (None, None)
+    };
+    let library_folders = if should_read_library_folders {
+        match client
+            .get_json::<Vec<RawLibraryFolder>>("Library/VirtualFolders", &[])
+            .await
+        {
+            Ok(raw_folders) => {
+                if raw_folders.len() > MAX_LIBRARY_FOLDER_COUNT {
+                    return Err(invalid_response());
+                }
+                let mut folders = Vec::with_capacity(raw_folders.len());
+                let mut complete = true;
+                for folder in raw_folders {
+                    let Some(folder) = map_library_folder(folder) else {
+                        complete = false;
+                        break;
+                    };
+                    folders.push(folder?);
+                }
+                complete.then_some(folders)
             }
-            let mut folders = Vec::with_capacity(raw_folders.len());
-            let mut complete = true;
-            for folder in raw_folders {
-                let Some(folder) = map_library_folder(folder) else {
-                    complete = false;
-                    break;
-                };
-                folders.push(folder?);
-            }
-            complete.then_some(folders)
+            Err(MigrationError::Unsupported) => None,
+            Err(error) => return Err(to_rpc_error(error)),
         }
-        Err(MigrationError::Unsupported) => None,
-        Err(error) => return Err(to_rpc_error(error)),
+    } else {
+        None
     };
     let items = users
         .into_iter()
         .map(map_user)
-        .collect::<Result<Vec<_>, _>>()?;
-    serde_json::to_value(UserPage {
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|user| project_user(user, user_fields.as_deref()))
+        .collect::<Vec<_>>();
+    serialize_user_page(UserPage {
         items,
         history_capability: HistoryCapability::ItemState,
         library_folders,
+        start_index,
+        total_record_count: (start_index.is_some()).then_some(total_record_count),
+        next_start_index,
     })
-    .map_err(|_| invalid_response())
 }
 
 pub async fn list_items(params: Value) -> Result<Value, PluginRpcError> {
@@ -463,6 +761,30 @@ async fn list_items_internal(
     let request: ItemPageRequest = serde_json::from_value(params).map_err(|_| invalid_request())?;
     let limit = request.limit.clamp(1, MAX_PAGE_SIZE);
     let user_id = validate_identifier(&request.user_id).map_err(|_| invalid_request())?;
+    if request
+        .source_library_ids
+        .as_deref()
+        .is_some_and(|library_ids| library_ids.is_empty())
+    {
+        return serde_json::to_value(ItemPage {
+            items: Vec::new(),
+            start_index: request.start_index,
+            total_record_count: Some(0),
+            next_start_index: None,
+            history_capability: HistoryCapability::ItemState,
+        })
+        .map_err(|_| invalid_response());
+    }
+    let source_library_ids = request
+        .source_library_ids
+        .as_deref()
+        .map(|ids| {
+            ids.iter()
+                .map(|id| validate_identifier(id).map(str::to_owned))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(|_| invalid_request())?;
     let state_filter = if include_user_data && !person_favorites {
         Some(request.state_filter.ok_or_else(invalid_request)?)
     } else {
@@ -472,7 +794,32 @@ async fn list_items_internal(
         .await
         .map_err(to_rpc_error)?;
     let path = format!("Users/{user_id}/Items");
-    let fields = "ProviderIds,ParentId,SeriesId,SeasonId,IndexNumber,ParentIndexNumber,ProductionYear,UserData";
+    let mut fields = vec![
+        "ProviderIds",
+        "ParentId",
+        "SeriesId",
+        "SeasonId",
+        "IndexNumber",
+        "ParentIndexNumber",
+        "ProductionYear",
+    ];
+    if include_user_data {
+        let requested_fields = request.state_fields.as_deref().unwrap_or(&[]);
+        if requested_fields.is_empty()
+            || requested_fields.iter().any(|field| {
+                matches!(
+                    field,
+                    UserStateField::Played
+                        | UserStateField::PlayCount
+                        | UserStateField::LastPlayedDate
+                        | UserStateField::IsFavorite
+                        | UserStateField::PlaybackPositionTicks
+                )
+            })
+        {
+            fields.push("UserData");
+        }
+    }
     let include_item_types = if person_favorites {
         "Person"
     } else {
@@ -483,7 +830,7 @@ async fn list_items_internal(
         ("Limit", limit.to_string()),
         ("Recursive", "true".to_owned()),
         ("EnableUserData", include_user_data.to_string()),
-        ("Fields", fields.to_owned()),
+        ("Fields", fields.join(",")),
         ("IncludeItemTypes", include_item_types.to_owned()),
     ];
     if let Some(state_filter) = state_filter {
@@ -492,6 +839,13 @@ async fn list_items_internal(
     if person_favorites {
         query.push(("IsFavorite", "true".to_owned()));
     }
+    if let Some(source_library_ids) = source_library_ids.as_deref() {
+        if source_library_ids.len() == 1 {
+            query.push(("ParentId", source_library_ids[0].clone()));
+        } else {
+            query.push(("AncestorIds", source_library_ids.join(",")));
+        }
+    }
     let raw: RawItemPage = client.get_json(&path, &query).await.map_err(to_rpc_error)?;
     if raw.items.len() > MAX_ITEM_COUNT {
         return Err(invalid_response());
@@ -499,9 +853,10 @@ async fn list_items_internal(
     let mut items = Vec::with_capacity(raw.items.len());
     for item in raw.items {
         if person_favorites {
-            let Some(item) = map_person_favorite(item)? else {
+            let Some(mut item) = map_person_favorite(item)? else {
                 continue;
             };
+            project_item_user_data(&mut item, request.state_fields.as_deref());
             items.push(item);
         } else {
             if !matches!(
@@ -510,7 +865,9 @@ async fn list_items_internal(
             ) {
                 continue;
             }
-            items.push(map_item(item)?);
+            let mut item = map_item(item)?;
+            project_item_user_data(&mut item, request.state_fields.as_deref());
+            items.push(item);
         }
     }
     let start_index = raw.start_index.unwrap_or(request.start_index);
@@ -667,16 +1024,17 @@ fn map_person_favorite(item: RawItem) -> Result<Option<MigratableItem>, PluginRp
     if mapped
         .user_data
         .as_ref()
-        .is_some_and(|user_data| !user_data.is_favorite)
+        .and_then(|user_data| user_data.is_favorite)
+        .is_some_and(|is_favorite| !is_favorite)
     {
         return Ok(None);
     }
     if mapped.user_data.is_none() {
         mapped.user_data = Some(MigratableUserData {
-            playback_position_ticks: 0,
-            played: false,
-            is_favorite: true,
-            play_count: 0,
+            playback_position_ticks: None,
+            played: None,
+            is_favorite: Some(true),
+            play_count: None,
             last_played_date: None,
         });
     }
@@ -691,10 +1049,10 @@ fn map_user_data(data: RawUserData) -> Result<MigratableUserData, PluginRpcError
         .last_played_date
         .filter(|value| value.chars().count() <= 128 && !value.chars().any(char::is_control));
     Ok(MigratableUserData {
-        playback_position_ticks: data.playback_position_ticks,
-        played: data.played,
-        is_favorite: data.is_favorite,
-        play_count: data.play_count,
+        playback_position_ticks: Some(data.playback_position_ticks),
+        played: Some(data.played),
+        is_favorite: Some(data.is_favorite),
+        play_count: Some(data.play_count),
         last_played_date,
     })
 }
@@ -960,6 +1318,137 @@ mod response_tests {
         server.await.expect("server should finish");
     }
 
+    #[tokio::test]
+    async fn list_users_reads_only_selected_user_and_requested_fields() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.expect("request bytes");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            assert!(request.starts_with("GET /Users/user-1?Fields="));
+            assert!(request.contains("Fields=Id%2CName%2CHasPassword"));
+            let body = r#"{"Id":"user-1","Name":"Alice","HasPassword":true,"PrimaryImageTag":"secret","Policy":{"IsDisabled":true,"IsAdministrator":true,"EnableAllFolders":false,"EnabledFolders":["library-1"],"EnableRemoteAccess":true,"EnableContentDownloading":true}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+
+        let result = list_users(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userIds": ["user-1"],
+            "userFields": ["id", "name", "hasPassword"],
+        }))
+        .await
+        .expect("filtered user request should succeed");
+
+        let user = &result["items"][0];
+        assert_eq!(user["id"], "user-1");
+        assert_eq!(user["name"], "Alice");
+        assert_eq!(user["hasPassword"], true);
+        assert!(user.get("isDisabled").is_none());
+        assert!(user.get("primaryImageTag").is_none());
+        assert!(result["libraryFolders"].is_null());
+        server.await.expect("server should finish");
+    }
+
+    #[tokio::test]
+    async fn user_state_projects_user_data_and_restricts_source_library() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.expect("request bytes");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            assert!(request.contains("ParentId=library-1"));
+            assert!(request.contains("Filters=IsFavorite"));
+            let body = r#"{"Items":[{"Id":"movie-1","Name":"电影","Type":"Movie","ProviderIds":{"Tmdb":"1"},"UserData":{"PlaybackPositionTicks":99,"Played":true,"IsFavorite":true,"PlayCount":4,"LastPlayedDate":"2026-08-21T12:00:00Z"}}],"TotalRecordCount":1,"StartIndex":0}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("response");
+        });
+
+        let result = user_state(json!({
+            "source": {
+                "baseUrl": format!("http://{address}"),
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userId": "user-1",
+            "startIndex": 0,
+            "limit": 100,
+            "stateFilter": "FAVORITE",
+            "stateFields": ["isFavorite"],
+            "sourceLibraryIds": ["library-1"],
+        }))
+        .await
+        .expect("projected state request should succeed");
+
+        let user_data = &result["items"][0]["userData"];
+        assert_eq!(user_data["isFavorite"], true);
+        assert!(user_data.get("played").is_none());
+        assert!(user_data.get("playCount").is_none());
+        assert!(user_data.get("playbackPositionTicks").is_none());
+        server.await.expect("server should finish");
+    }
+
+    #[tokio::test]
+    async fn empty_source_library_selection_skips_emby_request() {
+        let result = user_state(json!({
+            "source": {
+                "baseUrl": "http://127.0.0.1:9",
+                "apiKey": "test-key",
+                "allowPrivateNetwork": true,
+            },
+            "userId": "user-1",
+            "stateFilter": "PLAYED",
+            "stateFields": ["played"],
+            "sourceLibraryIds": [],
+        }))
+        .await
+        .expect("empty source scope should be a successful empty page");
+
+        assert!(result["items"].as_array().is_some_and(Vec::is_empty));
+    }
+
     #[test]
     fn maps_user_data_without_creating_history_events() {
         let page: RawItemPage = serde_json::from_value(json!({
@@ -982,9 +1471,9 @@ mod response_tests {
         .expect("fixture should parse");
         let item = map_item(page.items.into_iter().next().expect("item")).expect("item should map");
         let data = item.user_data.expect("user data should be preserved");
-        assert_eq!(data.playback_position_ticks, 120000000);
-        assert!(data.is_favorite);
-        assert_eq!(data.play_count, 2);
+        assert_eq!(data.playback_position_ticks, Some(120000000));
+        assert_eq!(data.is_favorite, Some(true));
+        assert_eq!(data.play_count, Some(2));
     }
 
     #[test]
@@ -1016,7 +1505,10 @@ mod response_tests {
         assert_eq!(mapped.name, "演员甲");
         assert_eq!(mapped.item_type, "Person");
         assert_eq!(mapped.provider_ids.get("Tmdb"), Some(&"12345".to_owned()));
-        assert!(mapped.user_data.expect("favorite data").is_favorite);
+        assert_eq!(
+            mapped.user_data.expect("favorite data").is_favorite,
+            Some(true)
+        );
 
         let movie: RawItem = serde_json::from_value(json!({
             "Id": "movie-1",
