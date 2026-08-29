@@ -63,7 +63,8 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
         "plugin.health" => Ok(json!({
             "available": true,
             "configured": true,
-            "historyCapability": "ITEM_STATE"
+            "historyCapability": "ITEM_STATE",
+            "supportsFilteredReads": true
         })),
         MIGRATION_TEST_METHOD => emby_migration::test_connection(params).await,
         MIGRATION_LIST_USERS_METHOD => emby_migration::list_users(params).await,
