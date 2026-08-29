@@ -24,7 +24,8 @@ Do not commit credentials, local configuration, media data, or unreviewed execut
 Emby base URL using a request-scoped API key, returns bounded user, item-state, and user-level Person favorite pages, and performs one-time
 user-password verification for accounts created by Lux. It never reads an Emby database, returns an Emby access token,
 or implements reverse migration. The current plugin reports `ITEM_STATE`; it does not synthesize a playback history
-timeline from aggregate UserData.
+timeline from aggregate UserData. When the host supplies `supportsFilteredReads` projections, it limits user IDs, user fields,
+state fields, and source library IDs before issuing Emby requests; legacy requests retain their previous complete-read behavior.
 
 ## Douban metadata
 
