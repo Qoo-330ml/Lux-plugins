@@ -3,7 +3,7 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     sync::OnceLock,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use reqwest::{Client, StatusCode, Url, redirect::Policy};
@@ -26,6 +26,7 @@ const MAX_LIBRARY_FOLDER_COUNT: usize = 1_000;
 const MAX_ITEM_COUNT: usize = 100_000;
 const MAX_ID_LENGTH: usize = 256;
 const MAX_TEXT_LENGTH: usize = 1024;
+const EMBY_CLIENT_CACHE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum MigrationInputError {
@@ -294,6 +295,7 @@ impl From<&EmbySource> for EmbyClientCacheKey {
 struct CachedEmbyClient {
     key: EmbyClientCacheKey,
     client: EmbyClient,
+    created_at: Instant,
 }
 
 // The plugin process handles many migration pages over one long-lived RPC
@@ -309,6 +311,7 @@ async fn cached_emby_client(source: EmbySource) -> Result<EmbyClient, MigrationE
     let mut cached = cache.lock().await;
     if let Some(entry) = cached.as_ref()
         && entry.key == key
+        && entry.created_at.elapsed() < EMBY_CLIENT_CACHE_TTL
     {
         return Ok(entry.client.clone());
     }
@@ -316,6 +319,7 @@ async fn cached_emby_client(source: EmbySource) -> Result<EmbyClient, MigrationE
     *cached = Some(CachedEmbyClient {
         key,
         client: client.clone(),
+        created_at: Instant::now(),
     });
     Ok(client)
 }
