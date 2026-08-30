@@ -1677,6 +1677,7 @@ mod response_tests {
             let request = String::from_utf8(request).expect("HTTP request");
             assert!(request.contains("IncludeItemTypes=Person"));
             assert!(request.contains("IsFavorite=true"));
+            assert!(request.contains("ParentId=library-1"));
             assert!(request.contains("EnableUserData=false"));
             let fields = request
                 .split("Fields=")
@@ -1708,6 +1709,7 @@ mod response_tests {
             "userId": "user-1",
             "startIndex": 0,
             "limit": 2,
+            "sourceLibraryIds": ["library-1"],
         }))
         .await
         .expect("person favorites request should succeed");
