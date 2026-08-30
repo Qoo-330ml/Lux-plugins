@@ -9,7 +9,11 @@ use std::{
 use luxd::application::{
     media_matching::{MediaKind, parse_media_name, title_candidates},
     plugin_protocol::{PluginRequest, PluginResponse, PluginRpcError},
-    settings::{TmdbSettings, read_tmdb_api_key, read_tmdb_settings, read_tmdb_token},
+    settings::{
+        TMDB_ALTERNATE_API_BASE_URL, TMDB_API_BASE_URL_OPTION_ALTERNATE,
+        TMDB_API_BASE_URL_OPTION_OFFICIAL, TMDB_CUSTOM_API_BASE_URL, TMDB_DEFAULT_API_BASE_URL,
+        TmdbSettings,
+    },
     tmdb::{
         TmdbAlternativeTitlesResponse, TmdbClient, TmdbCollectionDetails,
         TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImagesResponse,
@@ -27,12 +31,36 @@ use tokio::{
 };
 
 static CLIENT: OnceCell<Result<TmdbClient, String>> = OnceCell::const_new();
+static CONFIG: OnceCell<TmdbPluginConfig> = OnceCell::const_new();
 static SETTINGS: OnceCell<TmdbSettings> = OnceCell::const_new();
 static RESPONSE_CACHE: OnceCell<Mutex<HashMap<String, CachedResponse>>> = OnceCell::const_new();
 static INFLIGHT: OnceCell<InflightMap> = OnceCell::const_new();
 const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CACHE_CAPACITY: usize = 256;
 const MAX_RPC_CONCURRENCY: usize = 16;
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TmdbPluginConfig {
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    read_access_token: Option<String>,
+    #[serde(default)]
+    preferred_language: Option<String>,
+    #[serde(default)]
+    language_fallback_enabled: Option<bool>,
+    #[serde(default)]
+    title_alias_replacement_enabled: Option<bool>,
+    #[serde(default)]
+    fallback_languages: Option<Vec<String>>,
+    #[serde(default)]
+    alternate_api_enabled: Option<bool>,
+    #[serde(default)]
+    api_base_url_preset: Option<String>,
+    #[serde(default)]
+    api_base_url: Option<String>,
+}
 
 type InflightMap = StdMutex<HashMap<String, Arc<Notify>>>;
 
@@ -219,7 +247,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
                 "metadata.externalIds",
                 "metadata.trailers"
             ],
-            "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "BoxSet"]
+            "supportedItemTypes": ["Movie", "Series", "Season", "Episode", "Person", "BoxSet"]
         })),
         "plugin.health" => {
             let _ = client().await?;
@@ -999,14 +1027,26 @@ fn parse_request(params: Value) -> Result<MetadataRequest, PluginRpcError> {
 async fn client() -> Result<&'static TmdbClient, PluginRpcError> {
     let value = CLIENT
         .get_or_init(|| async {
-            let config_dir = config_dir();
+            let config = plugin_config().await.clone();
             let settings = settings().await;
-            let configured_base_url = settings
+            let configured_base_url = if config
                 .alternate_api_enabled
-                .then(|| settings.api_base_url.clone());
+                .unwrap_or(settings.alternate_api_enabled)
+            {
+                Some(
+                    resolve_api_base_url(
+                        config.api_base_url_preset.as_deref(),
+                        config.api_base_url.as_deref(),
+                        &settings.api_base_url,
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
+            } else {
+                None
+            };
             TmdbClient::from_env_or_config_with_base_url(
-                read_tmdb_api_key(&config_dir),
-                read_tmdb_token(&config_dir),
+                config.api_key,
+                config.read_access_token,
                 configured_base_url,
             )
             .map_err(|error| error.to_string())
@@ -1019,16 +1059,82 @@ async fn client() -> Result<&'static TmdbClient, PluginRpcError> {
 }
 
 async fn settings() -> &'static TmdbSettings {
-    let config_dir = config_dir();
+    let config = plugin_config().await.clone();
     SETTINGS
-        .get_or_init(|| async move { read_tmdb_settings(&config_dir).await })
+        .get_or_init(|| async move { settings_from_plugin_config(config) })
         .await
 }
 
-fn config_dir() -> PathBuf {
-    env::var_os("LUX_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("./config"))
+async fn plugin_config() -> &'static TmdbPluginConfig {
+    CONFIG.get_or_init(|| async { read_plugin_config() }).await
+}
+
+fn settings_from_plugin_config(config: TmdbPluginConfig) -> TmdbSettings {
+    let defaults = TmdbSettings::default();
+    let api_base_url = resolve_api_base_url(
+        config.api_base_url_preset.as_deref(),
+        config.api_base_url.as_deref(),
+        &defaults.api_base_url,
+    )
+    .unwrap_or_else(|_| defaults.api_base_url.clone());
+    let settings = TmdbSettings::new_with_api_and_title_alias_config(
+        config
+            .preferred_language
+            .unwrap_or(defaults.preferred_language),
+        config
+            .language_fallback_enabled
+            .unwrap_or(defaults.language_fallback_enabled),
+        config
+            .title_alias_replacement_enabled
+            .unwrap_or(defaults.title_alias_replacement_enabled),
+        config
+            .fallback_languages
+            .unwrap_or(defaults.fallback_languages),
+        config
+            .alternate_api_enabled
+            .unwrap_or(defaults.alternate_api_enabled),
+        api_base_url,
+    );
+    settings.unwrap_or_default()
+}
+
+fn resolve_api_base_url(
+    preset: Option<&str>,
+    configured: Option<&str>,
+    fallback: &str,
+) -> Result<String, &'static str> {
+    let preset = preset.map(str::trim).filter(|value| !value.is_empty());
+    let configured = configured.map(str::trim).filter(|value| !value.is_empty());
+    match preset {
+        None => match configured {
+            Some(TMDB_API_BASE_URL_OPTION_OFFICIAL) => Ok(TMDB_DEFAULT_API_BASE_URL.to_owned()),
+            Some(TMDB_API_BASE_URL_OPTION_ALTERNATE) => Ok(TMDB_ALTERNATE_API_BASE_URL.to_owned()),
+            Some(TMDB_CUSTOM_API_BASE_URL) => Err("custom TMDb API base URL is required"),
+            Some(value) => Ok(value.to_owned()),
+            None => Ok(fallback.trim().to_owned()),
+        },
+        Some(TMDB_API_BASE_URL_OPTION_OFFICIAL) => Ok(TMDB_DEFAULT_API_BASE_URL.to_owned()),
+        Some(TMDB_API_BASE_URL_OPTION_ALTERNATE) => Ok(TMDB_ALTERNATE_API_BASE_URL.to_owned()),
+        Some(TMDB_CUSTOM_API_BASE_URL) => configured
+            .map(str::to_owned)
+            .ok_or("custom TMDb API base URL is required"),
+        Some(value) => Ok(value.to_owned()),
+    }
+}
+
+fn read_plugin_config() -> TmdbPluginConfig {
+    let Some(path) = plugin_config_path(env::var_os("LUX_PLUGIN_CONFIG_PATH").map(PathBuf::from))
+    else {
+        return TmdbPluginConfig::default();
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default()
+}
+
+fn plugin_config_path(explicit_path: Option<PathBuf>) -> Option<PathBuf> {
+    explicit_path.filter(|path| !path.as_os_str().is_empty())
 }
 
 fn first_chinese_alias(response: &TmdbAlternativeTitlesResponse) -> Option<String> {
@@ -1545,6 +1651,62 @@ mod tests {
     fn tmdb_not_found_uses_the_provider_not_found_code() {
         let error = tmdb_error(luxd::application::tmdb::TmdbError::NotFound);
         assert_eq!(error.code, "PLUGIN_PROVIDER_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn plugin_hello_declares_person_support() {
+        let response = handle_method("plugin.hello", Value::Null)
+            .await
+            .expect("plugin hello should succeed");
+        assert!(
+            response["supportedItemTypes"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| item == "Person"))
+        );
+    }
+
+    #[test]
+    fn resolves_symbolic_and_legacy_api_base_url_values() {
+        assert_eq!(
+            resolve_api_base_url(Some("official"), None, "https://ignored.example"),
+            Ok("https://api.themoviedb.org".to_owned())
+        );
+        assert_eq!(
+            resolve_api_base_url(Some("alternate"), None, "https://ignored.example"),
+            Ok("https://api.tmdb.org".to_owned())
+        );
+        assert_eq!(
+            resolve_api_base_url(
+                Some("custom"),
+                Some("https://tmdb.internal.example/"),
+                "https://ignored.example"
+            ),
+            Ok("https://tmdb.internal.example/".to_owned())
+        );
+        assert_eq!(
+            resolve_api_base_url(
+                None,
+                Some("https://legacy.example"),
+                "https://ignored.example"
+            ),
+            Ok("https://legacy.example".to_owned())
+        );
+        assert!(resolve_api_base_url(Some("custom"), None, "https://ignored.example").is_err());
+        assert_eq!(
+            resolve_api_base_url(None, Some("official"), "https://ignored.example"),
+            Ok("https://api.themoviedb.org".to_owned())
+        );
+    }
+
+    #[test]
+    fn plugin_config_path_prefers_the_host_supplied_file() {
+        assert_eq!(
+            plugin_config_path(Some(PathBuf::from(
+                "/config/plugin-config/org.lux.tmdb.json",
+            ))),
+            Some(PathBuf::from("/config/plugin-config/org.lux.tmdb.json"))
+        );
+        assert_eq!(plugin_config_path(None), None);
     }
 
     #[tokio::test]

@@ -12,7 +12,7 @@ same version replaces the same asset. Lux validates the ZIP and its manifest bef
 into `/config/plugins`.
 
 The package asset name includes the plugin version and target architecture, for example
-`org.lux.tmdb-0.1.8-linux-x86_64.zip` and `org.lux.tmdb-0.1.8-linux-aarch64.zip`. The Lux host
+`org.lux.tmdb-0.1.10-linux-x86_64.zip` and `org.lux.tmdb-0.1.10-linux-aarch64.zip`. The Lux host
 selects the matching package from `packages` and stores it under its own canonical plugin ZIP
 name after downloading it.
 
@@ -29,11 +29,11 @@ state fields, and source library IDs before issuing Emby requests; legacy reques
 
 ## Douban metadata
 
-`org.lux.douban` implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
-Series search, metadata, poster images, cast/director credits, the Douban provider ID, and
-available trailers. Season metadata is supported when the upstream subject represents a season;
-episode, person, and collection metadata are reported as unsupported because the referenced
-Douban mobile API does not expose a stable equivalent.
+`org.lux.douban` (provider key `douban`) implements the Lux v1 metadata RPC contract for Douban. It supports Movie and
+Series search, metadata bundles, poster images, cast/director credits, the Douban provider ID,
+and available trailers. Season metadata is supported when the upstream subject represents a
+season; episode, person, and collection metadata are reported as unsupported because the
+referenced Douban mobile API does not expose a stable equivalent.
 
 Search uses Douban's public subject-suggest endpoint. Details and richer metadata use the
 WeChat-compatible client with the public client credential shipped by the upstream Jellyfin
@@ -42,12 +42,16 @@ installation. The optional `requestIntervalMs` setting only tunes request pacing
 testing or a future credential rotation, environment variables can override the built-in client
 key without changing the package. Credentials are never included in RPC results or logs. The
 plugin applies a bounded response size, HTTPS endpoint validation, rate limiting, retries for
-timeouts/429/5xx, and a short-lived bounded response cache.
+timeouts/429/5xx, and a short-lived bounded response cache. Setting `LUX_DOUBAN_API_BASE_URL` to
+the legacy `https://api.douban.com/v2/` endpoint selects the request shape used by the inspected
+Emby DLL; the default remains the currently supported WeChat-compatible endpoint.
 
 ## Intro/outro detector
 
 `org.lux.intro-outro-detector` implements the Lux v1 `chapter_detector` contract. It receives only
 bounded raw Chromaprint point sequences selected by Lux for at least two episodes in one season.
+Its manifest declares `supportedMediaSourceKinds: ["LOCAL_FILE"]`; this declaration controls which
+host media sources become candidates and does not expose paths to the plugin.
 Each Base64 payload is a little-endian sequence of `uint32` fingerprint points; one point represents
 `1,238,095` ticks. The detector compares aligned points with a bounded Hamming-distance tolerance,
 requires a non-trivial shared sequence, and uses support across the available episodes before
@@ -61,7 +65,9 @@ Emby-compatible chapter output.
 `org.lux.theintrodb-chapter-source` is an independent online chapter source. It queries
 [TheIntroDB](https://theintrodb.org/) using stored TMDb, TVDb, or IMDb metadata, season/episode numbers,
 and optional runtime. It receives no media path, URL, audio fingerprint, or task object, and never runs
-ffmpeg or ffprobe. Empty upstream results preserve existing chapters. Its exact boundary and configuration
+ffmpeg or ffprobe. Its manifest declares `supportedMediaSourceKinds: ["LOCAL_FILE", "STRM_URL"]`;
+the host uses that declaration to include local and `.strm` entries without sending either path or URL.
+Empty upstream results preserve existing chapters. Its exact boundary and configuration
 are documented in `README-theintrodb.md`.
 
 ## Webhook 通知器

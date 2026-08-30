@@ -88,6 +88,16 @@ impl TmdbClient {
                 "TMDb base URL must use http or https".to_owned(),
             ));
         }
+        if !base_url.username().is_empty() || base_url.password().is_some() {
+            return Err(TmdbError::InvalidBaseUrl(
+                "TMDb base URL must not include credentials".to_owned(),
+            ));
+        }
+        if base_url.query().is_some() || base_url.fragment().is_some() {
+            return Err(TmdbError::InvalidBaseUrl(
+                "TMDb base URL must not include a query or fragment".to_owned(),
+            ));
+        }
         let requests_per_second = if config.requests_per_second == 0 {
             TMDB_REQUESTS_PER_SECOND
         } else {
@@ -1549,6 +1559,22 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn rejects_credentials_query_and_fragment_in_base_url() {
+        for base_url in [
+            "https://user:secret@example.com",
+            "https://example.com?token=secret",
+            "https://example.com/#secret",
+        ] {
+            let result = TmdbClient::new(TmdbClientConfig {
+                base_url: base_url.to_owned(),
+                api_key: Some("test-key".to_owned()),
+                ..TmdbClientConfig::default()
+            });
+            assert!(result.is_err(), "expected {base_url} to be rejected");
+        }
+    }
 
     #[tokio::test]
     async fn alternative_titles_use_the_tv_endpoint() {

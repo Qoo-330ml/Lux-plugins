@@ -5,11 +5,13 @@
   "description": "从豆瓣提供电影、剧集、图片、人物和预告片元数据。公开搜索无需配置；详情接口可配置豆瓣客户端凭据。",
   "version": "__VERSION__",
   "apiVersion": 1,
+  "providerKey": "douban",
+  "aliases": ["douban"],
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
   "type": "metadata",
   "category": "SCRAPER",
   "supportedItemTypes": ["Movie", "Series", "Season"],
-  "capabilities": ["metadata.search", "metadata.get", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
+  "capabilities": ["metadata.search", "metadata.get", "metadata.bundle", "metadata.images", "metadata.credits", "metadata.externalIds", "metadata.trailers"],
   "configFields": [{
       "key": "requestIntervalMs",
       "label": "请求间隔（毫秒）",
@@ -24,6 +26,7 @@
   "permissions": {
     "network": [
       "frodo.douban.com",
+      "api.douban.com",
       "movie.douban.com",
       "img1.doubanio.com",
       "img2.doubanio.com",

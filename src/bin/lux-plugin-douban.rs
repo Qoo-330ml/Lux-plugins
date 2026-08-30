@@ -105,6 +105,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "capabilities": [
                 "metadata.search",
                 "metadata.get",
+                "metadata.bundle",
                 "metadata.images",
                 "metadata.credits",
                 "metadata.externalIds",
@@ -121,6 +122,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
         }
         "metadata.search"
         | "metadata.get"
+        | "metadata.bundle"
         | "metadata.images"
         | "metadata.credits"
         | "metadata.externalIds"
@@ -151,6 +153,7 @@ async fn cached_metadata_call(method: &str, params: Value) -> Result<Value, Plug
     let value = match method {
         "metadata.search" => search(params).await?,
         "metadata.get" => metadata(params).await?,
+        "metadata.bundle" => metadata_bundle(params).await?,
         "metadata.images" => images(params).await?,
         "metadata.credits" => credits(params).await?,
         "metadata.externalIds" => external_ids(params).await?,
@@ -240,6 +243,24 @@ async fn metadata(params: Value) -> Result<Value, PluginRpcError> {
     Ok(json!({"metadata": metadata}))
 }
 
+async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
+    let request = parse_request(params)?;
+    let item_type = item_type(&request);
+    if !matches!(item_type, "Movie" | "Series" | "Season") {
+        return Err(unsupported(item_type));
+    }
+    let provider_id = request
+        .provider_id
+        .as_deref()
+        .ok_or_else(|| invalid("providerId is required"))?;
+    let subject = client()
+        .await?
+        .subject(item_type, provider_id)
+        .await
+        .map_err(provider_error)?;
+    bundle_payload(&subject, item_type, request.season_number)
+}
+
 async fn images(params: Value) -> Result<Value, PluginRpcError> {
     let request = parse_request(params)?;
     let item_type = item_type(&request);
@@ -255,22 +276,7 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
         .subject(item_type, provider_id)
         .await
         .map_err(provider_error)?;
-    let Some(image) = subject.pic.as_ref() else {
-        return Ok(json!({"images": []}));
-    };
-    let Some(url) = image.large.as_deref().or(image.normal.as_deref()) else {
-        return Ok(json!({"images": []}));
-    };
-    let Some(url) = safe_image_url(Some(url)) else {
-        return Ok(json!({"images": []}));
-    };
-    let thumbnail_url = safe_image_url(image.normal.as_deref()).unwrap_or_else(|| url.clone());
-    Ok(json!({"images": [{
-        "Type": "Primary",
-        "Url": url,
-        "ThumbnailUrl": thumbnail_url,
-        "ProviderName": "Douban"
-    }]}))
+    Ok(image_payload(&subject))
 }
 
 async fn credits(params: Value) -> Result<Value, PluginRpcError> {
@@ -288,10 +294,7 @@ async fn credits(params: Value) -> Result<Value, PluginRpcError> {
         .subject(item_type, provider_id)
         .await
         .map_err(provider_error)?;
-    Ok(json!({
-        "cast": subject.actors.into_iter().filter_map(actor_credit).collect::<Vec<_>>(),
-        "crew": subject.directors.into_iter().filter_map(director_credit).collect::<Vec<_>>()
-    }))
+    Ok(credits_payload(&subject))
 }
 
 async fn external_ids(params: Value) -> Result<Value, PluginRpcError> {
@@ -323,11 +326,52 @@ async fn trailers(params: Value) -> Result<Value, PluginRpcError> {
         .subject(item_type, provider_id)
         .await
         .map_err(provider_error)?;
+    Ok(trailers_payload(&subject))
+}
+
+fn bundle_payload(
+    subject: &DoubanSubject,
+    item_type: &str,
+    season_number: Option<i32>,
+) -> Result<Value, PluginRpcError> {
+    Ok(json!({
+        "metadata": subject_metadata(subject, item_type, season_number)?,
+        "images": image_payload(subject),
+        "credits": credits_payload(subject),
+        "externalIds": {"providerIds": {"Douban": subject.id.trim()}},
+        "trailers": trailers_payload(subject)
+    }))
+}
+
+fn image_payload(subject: &DoubanSubject) -> Value {
+    let Some(image) = subject.pic.as_ref() else {
+        return json!({"images": []});
+    };
+    let Some(url) = safe_image_url(image.large.as_deref().or(image.normal.as_deref())) else {
+        return json!({"images": []});
+    };
+    let thumbnail_url = safe_image_url(image.normal.as_deref()).unwrap_or_else(|| url.clone());
+    json!({"images": [{
+        "Type": "Primary",
+        "Url": url,
+        "ThumbnailUrl": thumbnail_url,
+        "ProviderName": "Douban"
+    }]})
+}
+
+fn credits_payload(subject: &DoubanSubject) -> Value {
+    json!({
+        "cast": subject.actors.iter().cloned().filter_map(actor_credit).collect::<Vec<_>>(),
+        "crew": subject.directors.iter().cloned().filter_map(director_credit).collect::<Vec<_>>()
+    })
+}
+
+fn trailers_payload(subject: &DoubanSubject) -> Value {
     let trailers = subject
         .trailer
-        .into_iter()
+        .iter()
         .filter_map(|trailer| {
-            let url = trailer.video_url?;
+            let url = trailer.video_url.as_deref()?.trim();
             if !url.starts_with("https://") {
                 return None;
             }
@@ -339,7 +383,7 @@ async fn trailers(params: Value) -> Result<Value, PluginRpcError> {
             }))
         })
         .collect::<Vec<_>>();
-    Ok(json!({"trailers": trailers}))
+    json!({"trailers": trailers})
 }
 
 fn subject_metadata(
@@ -553,16 +597,18 @@ fn build_client() -> Result<DoubanClient, luxd::application::douban::DoubanError
 }
 
 fn read_plugin_config() -> DoubanPluginConfig {
-    let config_dir = env::var_os("LUX_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("./config"));
-    let path = config_dir
-        .join("plugin-config")
-        .join(format!("{PLUGIN_ID}.json"));
+    let Some(path) = plugin_config_path(env::var_os("LUX_PLUGIN_CONFIG_PATH").map(PathBuf::from))
+    else {
+        return DoubanPluginConfig::default();
+    };
     fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str(&contents).ok())
         .unwrap_or_default()
+}
+
+fn plugin_config_path(explicit_path: Option<PathBuf>) -> Option<PathBuf> {
+    explicit_path.filter(|path| !path.as_os_str().is_empty())
 }
 
 fn parse_request(params: Value) -> Result<MetadataRequest, PluginRpcError> {
@@ -646,7 +692,7 @@ mod tests {
             "intro": "一段奇幻旅程",
             "year": "2001",
             "pubdate": ["2001-07-20(日本)"],
-            "rating": {"value": 9.4, "star_count": 100000},
+            "rating": {"value": 9.4, "count": 100000, "star_count": 4.5},
             "pic": {"large": "https://img1.doubanio.com/large.jpg", "normal": "https://img1.doubanio.com/normal.jpg"},
             "countries": ["日本"],
             "genres": ["剧情", "动画"]
@@ -661,6 +707,17 @@ mod tests {
         assert_eq!(metadata["ProductionYear"], 2001);
         assert_eq!(metadata["PremiereDate"], "2001-07-20");
         assert_eq!(metadata["Votes"], 100000);
+    }
+
+    #[test]
+    fn bundles_metadata_and_provider_neutral_sections() {
+        let bundle = bundle_payload(&subject(), "Movie", None).unwrap_or(Value::Null);
+
+        assert_eq!(bundle["metadata"]["ProviderIds"]["Douban"], "1291561");
+        assert_eq!(bundle["images"]["images"].as_array().map(Vec::len), Some(1));
+        assert!(bundle["credits"].is_object());
+        assert_eq!(bundle["externalIds"]["providerIds"]["Douban"], "1291561");
+        assert!(bundle["trailers"]["trailers"].is_array());
     }
 
     #[test]
@@ -718,5 +775,16 @@ mod tests {
     fn always_has_a_default_public_key_without_configuration() {
         let client = build_client().expect("client");
         assert!(client.has_api_credentials());
+    }
+
+    #[test]
+    fn plugin_config_path_prefers_the_host_supplied_file() {
+        assert_eq!(
+            plugin_config_path(Some(PathBuf::from(
+                "/config/plugin-config/org.lux.douban.json",
+            ))),
+            Some(PathBuf::from("/config/plugin-config/org.lux.douban.json"))
+        );
+        assert_eq!(plugin_config_path(None), None);
     }
 }

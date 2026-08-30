@@ -29,6 +29,8 @@ def main() -> None:
             "category": manifest["category"],
             "version": manifest["version"],
             "runtime": manifest["runtime"]["kind"],
+            "providerKey": manifest.get("providerKey"),
+            "aliases": manifest.get("aliases", []),
             "capabilities": manifest.get("capabilities", []),
             "packages": [],
         })
