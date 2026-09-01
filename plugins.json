@@ -8,5 +8,5 @@
   {"id": "org.lux.theintrodb-chapter-source", "binary": "lux-plugin-theintrodb-chapter-source", "version": "0.1.1", "manifest": "manifests/org.lux.theintrodb-chapter-source.json"},
   {"id": "org.lux.webhook", "binary": "lux-plugin-webhook", "version": "0.1.0", "manifest": "manifests/org.lux.webhook.json"},
   {"id": "org.lux.emby-migration", "binary": "lux-plugin-emby-migration", "version": "0.1.5", "manifest": "manifests/org.lux.emby-migration.json"},
-  {"id": "org.lux.danmaku", "binary": "lux-plugin-danmaku", "version": "0.1.2", "manifest": "manifests/org.lux.danmaku.json"}
+  {"id": "org.lux.danmaku", "binary": "lux-plugin-danmaku", "version": "0.1.3", "manifest": "manifests/org.lux.danmaku.json"}
 ]
