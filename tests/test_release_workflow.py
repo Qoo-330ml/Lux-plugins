@@ -23,17 +23,25 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(preferred_language["type"], "select")
         self.assertEqual(preferred_language["options"][0], {"value": "zh-CN", "label": "简体中文"})
         self.assertEqual(
-            [option["value"] for option in preferred_language["options"][:4]],
-            ["zh-CN", "zh-SG", "zh-HK", "zh-TW"],
+            [option["value"] for option in preferred_language["options"][:3]],
+            ["zh-CN", "zh-TW", "en-US"],
         )
-        self.assertGreater(len(preferred_language["options"]), 4)
+        preferred_values = [option["value"] for option in preferred_language["options"]]
+        self.assertEqual(len(preferred_values), 73)
+        self.assertEqual(len(preferred_values), len(set(preferred_values)))
+        self.assertEqual(sum(value.startswith("en-") for value in preferred_values), 1)
+        self.assertEqual(sum(value.startswith("zh-") for value in preferred_values), 2)
+        self.assertEqual(
+            preferred_language["options"][2]["label"],
+            "英语 (English)",
+        )
 
         fallback_languages = fields["fallbackLanguages"]
         self.assertEqual(fallback_languages["type"], "select")
         self.assertTrue(fallback_languages["multiple"])
         self.assertEqual(
-            [option["value"] for option in fallback_languages["options"][:4]],
-            ["zh-CN", "zh-SG", "zh-HK", "zh-TW"],
+            [option["value"] for option in fallback_languages["options"][:3]],
+            ["zh-CN", "zh-TW", "en-US"],
         )
 
         api_base_url_preset = fields["apiBaseUrlPreset"]
