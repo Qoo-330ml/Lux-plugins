@@ -309,7 +309,7 @@ impl TmdbClient {
             ("language", language.trim().to_owned()),
             (
                 "append_to_response",
-                "images,credits,external_ids,videos".to_owned(),
+                "images,credits,external_ids,videos,translations".to_owned(),
             ),
         ];
         let details: TmdbMovieDetails = self.request_json(&endpoint, &params).await?;
@@ -461,7 +461,7 @@ impl TmdbClient {
             ("language", language.trim().to_owned()),
             (
                 "append_to_response",
-                "images,credits,external_ids,videos".to_owned(),
+                "images,credits,external_ids,videos,translations".to_owned(),
             ),
         ];
         let details: TmdbSeriesDetails = self.request_json(&endpoint, &params).await?;
@@ -493,6 +493,33 @@ impl TmdbClient {
         Ok(details)
     }
 
+    pub async fn season_details_with_append(
+        &self,
+        series_id: i64,
+        season_number: i32,
+        language: &str,
+    ) -> Result<TmdbSeasonDetails, TmdbError> {
+        validate_id_language(series_id, language, "series")?;
+        if !(-1..=1000).contains(&season_number) {
+            return Err(TmdbError::InvalidRequest(
+                "season number is out of range".to_owned(),
+            ));
+        }
+        let endpoint = format!("3/tv/{series_id}/season/{season_number}");
+        let params = [
+            ("language", language.trim().to_owned()),
+            ("append_to_response", "translations".to_owned()),
+        ];
+        let details: TmdbSeasonDetails = self.request_json(&endpoint, &params).await?;
+        validate_id(details.id, "season details")?;
+        if details.episodes.iter().any(|episode| episode.id <= 0) {
+            return Err(TmdbError::InvalidResponse(
+                "season episode ID is invalid".to_owned(),
+            ));
+        }
+        Ok(details)
+    }
+
     pub async fn episode_details(
         &self,
         series_id: i64,
@@ -508,6 +535,29 @@ impl TmdbClient {
         }
         let endpoint = format!("3/tv/{series_id}/season/{season_number}/episode/{episode_number}");
         let params = [("language", language.trim().to_owned())];
+        let details: TmdbEpisodeDetails = self.request_json(&endpoint, &params).await?;
+        validate_id(details.id, "episode details")?;
+        Ok(details)
+    }
+
+    pub async fn episode_details_with_append(
+        &self,
+        series_id: i64,
+        season_number: i32,
+        episode_number: i32,
+        language: &str,
+    ) -> Result<TmdbEpisodeDetails, TmdbError> {
+        validate_id_language(series_id, language, "series")?;
+        if !(-1..=1000).contains(&season_number) || !(0..=10000).contains(&episode_number) {
+            return Err(TmdbError::InvalidRequest(
+                "episode number is out of range".to_owned(),
+            ));
+        }
+        let endpoint = format!("3/tv/{series_id}/season/{season_number}/episode/{episode_number}");
+        let params = [
+            ("language", language.trim().to_owned()),
+            ("append_to_response", "translations".to_owned()),
+        ];
         let details: TmdbEpisodeDetails = self.request_json(&endpoint, &params).await?;
         validate_id(details.id, "episode details")?;
         Ok(details)
@@ -1099,6 +1149,35 @@ pub struct TmdbMovieDetails {
     pub external_ids: Option<TmdbExternalIds>,
     #[serde(default)]
     pub videos: Option<TmdbVideosResponse>,
+    #[serde(default)]
+    pub translations: Option<TmdbTranslationsResponse>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbTranslationsResponse {
+    pub id: i64,
+    #[serde(default)]
+    pub translations: Vec<TmdbTranslation>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbTranslation {
+    #[serde(default)]
+    pub iso_639_1: String,
+    #[serde(default)]
+    pub iso_3166_1: String,
+    #[serde(default)]
+    pub data: TmdbTranslationData,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct TmdbTranslationData {
+    pub title: Option<String>,
+    pub name: Option<String>,
+    pub overview: Option<String>,
+    pub tagline: Option<String>,
+    pub homepage: Option<String>,
+    pub air_date: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1233,6 +1312,8 @@ pub struct TmdbSeriesDetails {
     pub external_ids: Option<TmdbExternalIds>,
     #[serde(default)]
     pub videos: Option<TmdbVideosResponse>,
+    #[serde(default)]
+    pub translations: Option<TmdbTranslationsResponse>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1256,6 +1337,8 @@ pub struct TmdbSeasonDetails {
     pub poster_path: Option<String>,
     #[serde(default)]
     pub episodes: Vec<TmdbEpisodeSummary>,
+    #[serde(default)]
+    pub translations: Option<TmdbTranslationsResponse>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1280,6 +1363,8 @@ pub struct TmdbEpisodeDetails {
     pub season_number: Option<i32>,
     pub still_path: Option<String>,
     pub runtime: Option<i32>,
+    #[serde(default)]
+    pub translations: Option<TmdbTranslationsResponse>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -1624,6 +1709,71 @@ mod tests {
             .expect("alternative titles should decode");
 
         assert_eq!(response.results[0].title.as_deref(), Some("传奇办公室"));
+        server.await.expect("test server should finish");
+    }
+
+    #[tokio::test]
+    async fn movie_details_append_translations_in_the_single_details_request() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener should bind");
+        let address = listener.local_addr().expect("test listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("test request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 2048];
+            loop {
+                let bytes = stream.read(&mut buffer).await.expect("read request");
+                if bytes == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
+            assert!(request.starts_with("GET /3/movie/42?"));
+            assert!(request.contains(
+                "append_to_response=images%2Ccredits%2Cexternal_ids%2Cvideos%2Ctranslations"
+            ));
+            let body = r#"{
+                "id":42,
+                "title":"Movie",
+                "translations":{"id":42,"translations":[
+                    {"iso_639_1":"en","iso_3166_1":"US","data":{"title":"Movie","overview":"English overview"}}
+                ]}
+            }"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+
+        let client = TmdbClient::new(TmdbClientConfig {
+            base_url: format!("http://{address}"),
+            api_key: Some("test-key".to_owned()),
+            max_retries: 0,
+            ..TmdbClientConfig::default()
+        })
+        .expect("test client should build");
+        let response = client
+            .movie_details_with_append(42, "en-US")
+            .await
+            .expect("movie details should decode");
+
+        assert_eq!(
+            response.translations.unwrap().translations[0]
+                .data
+                .overview
+                .as_deref(),
+            Some("English overview")
+        );
         server.await.expect("test server should finish");
     }
 }
