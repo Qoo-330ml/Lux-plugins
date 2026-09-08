@@ -314,6 +314,7 @@ impl TmdbSettings {
                     .unwrap_or(language.trim())
                     .to_owned()
             })
+            .filter(|language| language != &self.preferred_language)
             .filter(|language| seen.insert(language.clone()))
             .collect();
         self
@@ -575,7 +576,7 @@ mod tests {
         .expect("legacy regional locales should remain supported");
 
         assert_eq!(settings.preferred_language, "en-US");
-        assert_eq!(settings.fallback_languages, ["zh-CN", "zh-TW", "en-US"]);
+        assert_eq!(settings.fallback_languages, ["zh-CN", "zh-TW"]);
     }
 
     #[test]
