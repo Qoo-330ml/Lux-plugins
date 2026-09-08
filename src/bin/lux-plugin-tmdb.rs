@@ -18,8 +18,8 @@ use luxd::application::{
         TmdbAlternativeTitlesResponse, TmdbClient, TmdbCollectionDetails,
         TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImagesResponse,
         TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails, TmdbPersonSearchResponse,
-        TmdbSeasonDetails, TmdbSeriesDetails, TmdbTvSearchResponse, TmdbVideosResponse,
-        fill_if_empty,
+        TmdbSeasonDetails, TmdbSeriesDetails, TmdbTranslation, TmdbTranslationData,
+        TmdbTranslationsResponse, TmdbTvSearchResponse, TmdbVideosResponse, fill_if_empty,
     },
 };
 use serde::Deserialize;
@@ -566,6 +566,115 @@ async fn metadata_languages() -> Vec<String> {
     languages
 }
 
+fn locale_parts(locale: &str) -> Option<(&str, &str)> {
+    locale.trim().split_once('-')
+}
+
+fn chinese_script_group(region: &str) -> Option<bool> {
+    match region {
+        "CN" | "SG" => Some(true),
+        "HK" | "TW" => Some(false),
+        _ => None,
+    }
+}
+
+fn translation_matches_locale(translation: &TmdbTranslation, requested: &str) -> Option<bool> {
+    let (requested_language, requested_region) = locale_parts(requested)?;
+    if !translation
+        .iso_639_1
+        .eq_ignore_ascii_case(requested_language)
+    {
+        return None;
+    }
+    let exact = translation
+        .iso_3166_1
+        .eq_ignore_ascii_case(requested_region);
+    if exact {
+        return Some(true);
+    }
+    if requested_language.eq_ignore_ascii_case("zh") {
+        let actual_group = chinese_script_group(translation.iso_3166_1.as_str())?;
+        let requested_group = chinese_script_group(requested_region)?;
+        return (actual_group == requested_group).then_some(false);
+    }
+    Some(false)
+}
+
+fn translation_data_for(
+    response: Option<&TmdbTranslationsResponse>,
+    languages: &[String],
+) -> Vec<TmdbTranslationData> {
+    if languages.len() <= 1 {
+        return Vec::new();
+    }
+    let Some(response) = response else {
+        return Vec::new();
+    };
+
+    let mut ranked = response
+        .translations
+        .iter()
+        .enumerate()
+        .filter_map(|(translation_index, translation)| {
+            languages
+                .iter()
+                .enumerate()
+                .filter_map(|(language_index, language)| {
+                    translation_matches_locale(translation, language).map(|exact| {
+                        (
+                            language_index,
+                            if exact { 0_u8 } else { 1_u8 },
+                            translation_index,
+                            translation.data.clone(),
+                        )
+                    })
+                })
+                .min_by_key(|(language_index, exact, translation_index, _)| {
+                    (*language_index, *exact, *translation_index)
+                })
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|(language_index, exact, translation_index, _)| {
+        (*language_index, *exact, *translation_index)
+    });
+    ranked.into_iter().map(|(_, _, _, data)| data).collect()
+}
+
+fn fill_movie_translation_fields(details: &mut TmdbMovieDetails, languages: &[String]) {
+    for data in translation_data_for(details.translations.as_ref(), languages) {
+        fill_if_empty(&mut details.title, &data.title);
+        fill_if_empty(&mut details.overview, &data.overview);
+        fill_if_empty(&mut details.tagline, &data.tagline);
+        fill_if_empty(&mut details.homepage, &data.homepage);
+    }
+}
+
+fn fill_series_translation_fields(details: &mut TmdbSeriesDetails, languages: &[String]) {
+    for data in translation_data_for(details.translations.as_ref(), languages) {
+        let name = data.name.clone().or(data.title.clone());
+        fill_if_empty(&mut details.name, &name);
+        fill_if_empty(&mut details.overview, &data.overview);
+    }
+}
+
+fn fill_season_translation_fields(details: &mut TmdbSeasonDetails, languages: &[String]) {
+    for data in translation_data_for(details.translations.as_ref(), languages) {
+        let name = data.name.clone().or(data.title.clone());
+        fill_if_empty(&mut details.name, &name);
+        fill_if_empty(&mut details.overview, &data.overview);
+        fill_if_empty(&mut details.air_date, &data.air_date);
+    }
+}
+
+fn fill_episode_translation_fields(details: &mut TmdbEpisodeDetails, languages: &[String]) {
+    for data in translation_data_for(details.translations.as_ref(), languages) {
+        let name = data.name.clone().or(data.title.clone());
+        fill_if_empty(&mut details.name, &name);
+        fill_if_empty(&mut details.overview, &data.overview);
+        fill_if_empty(&mut details.air_date, &data.air_date);
+    }
+}
+
 async fn localized_movie_details(
     movie_id: i64,
     languages: &[String],
@@ -573,23 +682,10 @@ async fn localized_movie_details(
     let client = client()
         .await
         .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
-    let mut details = client.movie_details(movie_id, &languages[0]).await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client.movie_details(movie_id, language).await else {
-            continue;
-        };
-        fill_if_empty(&mut details.title, &fallback.title);
-        fill_if_empty(&mut details.original_title, &fallback.original_title);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.release_date, &fallback.release_date);
-        fill_if_empty(&mut details.original_language, &fallback.original_language);
-        fill_if_empty(&mut details.tagline, &fallback.tagline);
-        fill_if_empty(&mut details.homepage, &fallback.homepage);
-        fill_if_empty(&mut details.status, &fallback.status);
-        if details.belongs_to_collection.is_none() {
-            details.belongs_to_collection = fallback.belongs_to_collection;
-        }
-    }
+    let mut details = client
+        .movie_details_with_append(movie_id, &languages[0])
+        .await?;
+    fill_movie_translation_fields(&mut details, languages);
     let preferred_region = if languages[0].starts_with("zh") {
         "CN"
     } else {
@@ -615,20 +711,10 @@ async fn localized_series_details(
     let client = client()
         .await
         .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
-    let mut details = client.series_details(series_id, &languages[0]).await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client.series_details(series_id, language).await else {
-            continue;
-        };
-        fill_if_empty(&mut details.name, &fallback.name);
-        fill_if_empty(&mut details.original_name, &fallback.original_name);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.first_air_date, &fallback.first_air_date);
-        fill_if_empty(&mut details.last_air_date, &fallback.last_air_date);
-        fill_if_empty(&mut details.original_language, &fallback.original_language);
-        fill_if_empty(&mut details.poster_path, &fallback.poster_path);
-        fill_if_empty(&mut details.backdrop_path, &fallback.backdrop_path);
-    }
+    let mut details = client
+        .series_details_with_append(series_id, &languages[0])
+        .await?;
+    fill_series_translation_fields(&mut details, languages);
     if title_alias_replacement_enabled(&languages[0]).await {
         if let Ok(aliases) = client.tv_alternative_titles(series_id).await {
             replace_title_with_chinese_alias(&mut details.name, &aliases);
@@ -646,20 +732,9 @@ async fn localized_season_details(
         .await
         .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
     let mut details = client
-        .season_details(series_id, season_number, &languages[0])
+        .season_details_with_append(series_id, season_number, &languages[0])
         .await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client
-            .season_details(series_id, season_number, language)
-            .await
-        else {
-            continue;
-        };
-        fill_if_empty(&mut details.name, &fallback.name);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.air_date, &fallback.air_date);
-        fill_if_empty(&mut details.poster_path, &fallback.poster_path);
-    }
+    fill_season_translation_fields(&mut details, languages);
     Ok(details)
 }
 
@@ -673,19 +748,9 @@ async fn localized_episode_details(
         .await
         .map_err(|error| luxd::application::tmdb::TmdbError::Transport(error.message))?;
     let mut details = client
-        .episode_details(series_id, season_number, episode_number, &languages[0])
+        .episode_details_with_append(series_id, season_number, episode_number, &languages[0])
         .await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client
-            .episode_details(series_id, season_number, episode_number, language)
-            .await
-        else {
-            continue;
-        };
-        fill_if_empty(&mut details.name, &fallback.name);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.air_date, &fallback.air_date);
-    }
+    fill_episode_translation_fields(&mut details, languages);
     Ok(details)
 }
 
@@ -827,22 +892,7 @@ async fn localized_movie_details_with_append(
     let mut details = client
         .movie_details_with_append(movie_id, &languages[0])
         .await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client.movie_details(movie_id, language).await else {
-            continue;
-        };
-        fill_if_empty(&mut details.title, &fallback.title);
-        fill_if_empty(&mut details.original_title, &fallback.original_title);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.release_date, &fallback.release_date);
-        fill_if_empty(&mut details.original_language, &fallback.original_language);
-        fill_if_empty(&mut details.tagline, &fallback.tagline);
-        fill_if_empty(&mut details.homepage, &fallback.homepage);
-        fill_if_empty(&mut details.status, &fallback.status);
-        if details.belongs_to_collection.is_none() {
-            details.belongs_to_collection = fallback.belongs_to_collection;
-        }
-    }
+    fill_movie_translation_fields(&mut details, languages);
     let preferred_region = if languages[0].starts_with("zh") {
         "CN"
     } else {
@@ -866,19 +916,7 @@ async fn localized_series_details_with_append(
     let mut details = client
         .series_details_with_append(series_id, &languages[0])
         .await?;
-    for language in languages.iter().skip(1) {
-        let Ok(fallback) = client.series_details(series_id, language).await else {
-            continue;
-        };
-        fill_if_empty(&mut details.name, &fallback.name);
-        fill_if_empty(&mut details.original_name, &fallback.original_name);
-        fill_if_empty(&mut details.overview, &fallback.overview);
-        fill_if_empty(&mut details.first_air_date, &fallback.first_air_date);
-        fill_if_empty(&mut details.last_air_date, &fallback.last_air_date);
-        fill_if_empty(&mut details.original_language, &fallback.original_language);
-        fill_if_empty(&mut details.poster_path, &fallback.poster_path);
-        fill_if_empty(&mut details.backdrop_path, &fallback.backdrop_path);
-    }
+    fill_series_translation_fields(&mut details, languages);
     Ok(details)
 }
 
@@ -1552,7 +1590,9 @@ fn tmdb_error(error: luxd::application::tmdb::TmdbError) -> PluginRpcError {
 
 #[cfg(test)]
 mod tests {
-    use luxd::application::tmdb::TmdbAlternativeTitle;
+    use luxd::application::tmdb::{
+        TmdbAlternativeTitle, TmdbTranslation, TmdbTranslationData, TmdbTranslationsResponse,
+    };
 
     use super::*;
 
@@ -1611,6 +1651,116 @@ mod tests {
         replace_title_with_chinese_alias(&mut title, &aliases);
 
         assert_eq!(title.as_deref(), Some("中文标题"));
+    }
+
+    #[test]
+    fn translation_selection_prefers_exact_locale_then_fallback_group_order() {
+        let translations = TmdbTranslationsResponse {
+            id: 42,
+            translations: vec![
+                TmdbTranslation {
+                    iso_639_1: "en".to_owned(),
+                    iso_3166_1: "GB".to_owned(),
+                    data: TmdbTranslationData {
+                        title: Some("British title".to_owned()),
+                        ..TmdbTranslationData::default()
+                    },
+                },
+                TmdbTranslation {
+                    iso_639_1: "zh".to_owned(),
+                    iso_3166_1: "TW".to_owned(),
+                    data: TmdbTranslationData {
+                        title: Some("繁體標題".to_owned()),
+                        ..TmdbTranslationData::default()
+                    },
+                },
+                TmdbTranslation {
+                    iso_639_1: "en".to_owned(),
+                    iso_3166_1: "US".to_owned(),
+                    data: TmdbTranslationData {
+                        title: Some("American title".to_owned()),
+                        ..TmdbTranslationData::default()
+                    },
+                },
+            ],
+        };
+
+        let selected = translation_data_for(
+            Some(&translations),
+            &["en-US".to_owned(), "zh-TW".to_owned()],
+        );
+
+        assert_eq!(
+            selected
+                .iter()
+                .filter_map(|data| data.title.as_deref())
+                .collect::<Vec<_>>(),
+            ["American title", "British title", "繁體標題"]
+        );
+    }
+
+    #[test]
+    fn translation_selection_keeps_regional_simplified_chinese_in_one_group() {
+        let translations = TmdbTranslationsResponse {
+            id: 42,
+            translations: vec![TmdbTranslation {
+                iso_639_1: "zh".to_owned(),
+                iso_3166_1: "SG".to_owned(),
+                data: TmdbTranslationData {
+                    title: Some("简体标题".to_owned()),
+                    ..TmdbTranslationData::default()
+                },
+            }],
+        };
+
+        let selected = translation_data_for(
+            Some(&translations),
+            &["zh-CN".to_owned(), "zh-TW".to_owned()],
+        );
+
+        assert_eq!(selected[0].title.as_deref(), Some("简体标题"));
+    }
+
+    #[test]
+    fn translation_fallback_fills_only_empty_metadata_fields() {
+        let mut details = TmdbSeriesDetails {
+            overview: Some("首选语言简介".to_owned()),
+            translations: Some(TmdbTranslationsResponse {
+                id: 42,
+                translations: vec![TmdbTranslation {
+                    iso_639_1: "en".to_owned(),
+                    iso_3166_1: "US".to_owned(),
+                    data: TmdbTranslationData {
+                        name: Some("English name".to_owned()),
+                        overview: Some("English overview".to_owned()),
+                        ..TmdbTranslationData::default()
+                    },
+                }],
+            }),
+            ..TmdbSeriesDetails::default()
+        };
+
+        fill_series_translation_fields(&mut details, &["zh-CN".to_owned(), "en-US".to_owned()]);
+
+        assert_eq!(details.name.as_deref(), Some("English name"));
+        assert_eq!(details.overview.as_deref(), Some("首选语言简介"));
+    }
+
+    #[test]
+    fn disabled_translation_fallback_does_not_read_translation_payload() {
+        let translations = TmdbTranslationsResponse {
+            id: 42,
+            translations: vec![TmdbTranslation {
+                iso_639_1: "en".to_owned(),
+                iso_3166_1: "US".to_owned(),
+                data: TmdbTranslationData {
+                    title: Some("English title".to_owned()),
+                    ..TmdbTranslationData::default()
+                },
+            }],
+        };
+
+        assert!(translation_data_for(Some(&translations), &["zh-CN".to_owned()]).is_empty());
     }
     #[test]
     fn empty_image_language_requests_all_languages_without_changing_batch_defaults() {
