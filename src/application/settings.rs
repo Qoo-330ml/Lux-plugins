@@ -18,7 +18,7 @@ pub const TMDB_API_BASE_URL_OPTION_ALTERNATE: &str = "alternate";
 pub const TMDB_CUSTOM_API_BASE_URL: &str = "custom";
 const TMDB_API_BASE_URL_MAX_LENGTH: usize = 2048;
 
-const TMDB_DEFAULT_FALLBACK_LANGUAGES: [&str; 3] = ["zh-SG", "zh-HK", "zh-TW"];
+const TMDB_DEFAULT_FALLBACK_LANGUAGES: [&str; 1] = ["zh-TW"];
 
 // TMDb primary translations from /3/configuration/primary_translations.
 const TMDB_PRIMARY_TRANSLATIONS: &[&str] = &[
@@ -39,6 +39,86 @@ const TMDB_PRIMARY_TRANSLATIONS: &[&str] = &[
     "zh-HK", "zh-SG", "zh-TW", "zu-ZA",
 ];
 
+// One canonical locale per language group. TMDb accepts a single locale for
+// `language`, while its translations response contains the available regional
+// variants. Keeping the regional variants out of the UI avoids making users
+// choose between values that are resolved together at runtime.
+const TMDB_LANGUAGE_GROUPS: &[(&str, &str)] = &[
+    ("zh-CN", "简体中文"),
+    ("zh-TW", "繁體中文"),
+    ("en-US", "英语 (English)"),
+    ("af-ZA", "南非荷兰语 (Afrikaans)"),
+    ("ar-SA", "阿拉伯语 (Arabic)"),
+    ("be-BY", "白俄罗斯语 (Belarusian)"),
+    ("bg-BG", "保加利亚语 (Bulgarian)"),
+    ("bn-BD", "孟加拉语 (Bengali)"),
+    ("br-FR", "布列塔尼语 (Breton)"),
+    ("ca-ES", "加泰罗尼亚语 (Catalan)"),
+    ("ch-GU", "查莫罗语 (Chamorro)"),
+    ("cs-CZ", "捷克语 (Czech)"),
+    ("cy-GB", "威尔士语 (Welsh)"),
+    ("da-DK", "丹麦语 (Danish)"),
+    ("de-DE", "德语 (German)"),
+    ("el-GR", "希腊语 (Greek)"),
+    ("eo-EO", "世界语 (Esperanto)"),
+    ("es-ES", "西班牙语 (Spanish)"),
+    ("et-EE", "爱沙尼亚语 (Estonian)"),
+    ("eu-ES", "巴斯克语 (Basque)"),
+    ("fa-IR", "波斯语 (Persian)"),
+    ("fi-FI", "芬兰语 (Finnish)"),
+    ("fr-FR", "法语 (French)"),
+    ("ga-IE", "爱尔兰语 (Irish)"),
+    ("gd-GB", "苏格兰盖尔语 (Scottish Gaelic)"),
+    ("gl-ES", "加利西亚语 (Galician)"),
+    ("he-IL", "希伯来语 (Hebrew)"),
+    ("hi-IN", "印地语 (Hindi)"),
+    ("hr-HR", "克罗地亚语 (Croatian)"),
+    ("hu-HU", "匈牙利语 (Hungarian)"),
+    ("hy-AM", "亚美尼亚语 (Armenian)"),
+    ("id-ID", "印度尼西亚语 (Indonesian)"),
+    ("it-IT", "意大利语 (Italian)"),
+    ("ja-JP", "日语 (Japanese)"),
+    ("ka-GE", "格鲁吉亚语 (Georgian)"),
+    ("kk-KZ", "哈萨克语 (Kazakh)"),
+    ("kn-IN", "卡纳达语 (Kannada)"),
+    ("ko-KR", "韩语 (Korean)"),
+    ("ku-TR", "库尔德语 (Kurdish)"),
+    ("ky-KG", "吉尔吉斯语 (Kyrgyz)"),
+    ("lt-LT", "立陶宛语 (Lithuanian)"),
+    ("lv-LV", "拉脱维亚语 (Latvian)"),
+    ("ml-IN", "马拉雅拉姆语 (Malayalam)"),
+    ("mr-IN", "马拉地语 (Marathi)"),
+    ("ms-MY", "马来语 (Malay)"),
+    ("nb-NO", "挪威语（书面挪威语） (Norwegian Bokmål)"),
+    ("ne-NP", "尼泊尔语 (Nepali)"),
+    ("nl-NL", "荷兰语 (Dutch)"),
+    ("no-NO", "挪威语 (Norwegian)"),
+    ("oc-FR", "奥克语 (Occitan)"),
+    ("pa-IN", "旁遮普语 (Punjabi)"),
+    ("pl-PL", "波兰语 (Polish)"),
+    ("pt-BR", "葡萄牙语 (Portuguese)"),
+    ("ro-RO", "罗马尼亚语 (Romanian)"),
+    ("ru-RU", "俄语 (Russian)"),
+    ("si-LK", "僧伽罗语 (Sinhala)"),
+    ("sk-SK", "斯洛伐克语 (Slovak)"),
+    ("sl-SI", "斯洛文尼亚语 (Slovenian)"),
+    ("so-SO", "索马里语 (Somali)"),
+    ("sq-AL", "阿尔巴尼亚语 (Albanian)"),
+    ("sr-RS", "塞尔维亚语 (Serbian)"),
+    ("sv-SE", "瑞典语 (Swedish)"),
+    ("sw-TZ", "斯瓦希里语 (Swahili)"),
+    ("ta-IN", "泰米尔语 (Tamil)"),
+    ("te-IN", "泰卢固语 (Telugu)"),
+    ("th-TH", "泰语 (Thai)"),
+    ("tl-PH", "菲律宾语 (Filipino)"),
+    ("tr-TR", "土耳其语 (Turkish)"),
+    ("uk-UA", "乌克兰语 (Ukrainian)"),
+    ("ur-PK", "乌尔都语 (Urdu)"),
+    ("uz-UZ", "乌兹别克语 (Uzbek)"),
+    ("vi-VN", "越南语 (Vietnamese)"),
+    ("zu-ZA", "祖鲁语 (Zulu)"),
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TmdbLanguageOption {
     pub value: String,
@@ -52,23 +132,11 @@ pub struct TmdbApiBaseUrlOption {
 }
 
 pub fn tmdb_language_options() -> Vec<TmdbLanguageOption> {
-    let mut values = Vec::with_capacity(TMDB_PRIMARY_TRANSLATIONS.len());
-    values.extend(["zh-CN", "zh-SG", "zh-HK", "zh-TW"]);
-    let additional = TMDB_PRIMARY_TRANSLATIONS
+    TMDB_LANGUAGE_GROUPS
         .iter()
-        .copied()
-        .filter(|value| !values.contains(value))
-        .collect::<Vec<_>>();
-    values.extend(additional);
-    values
-        .into_iter()
-        .map(|value| TmdbLanguageOption {
-            label: if value == "zh-CN" {
-                "简体中文".to_owned()
-            } else {
-                value.to_owned()
-            },
-            value: value.to_owned(),
+        .map(|(value, label)| TmdbLanguageOption {
+            label: (*label).to_owned(),
+            value: (*value).to_owned(),
         })
         .collect()
 }
@@ -90,8 +158,27 @@ pub fn tmdb_api_base_url_options() -> Vec<TmdbApiBaseUrlOption> {
     ]
 }
 
+pub fn canonical_tmdb_language(language: &str) -> Option<&'static str> {
+    let language = language.trim();
+    if !TMDB_PRIMARY_TRANSLATIONS.contains(&language) {
+        return None;
+    }
+    let language_code = language.split_once('-')?.0;
+    if language_code == "zh" {
+        return Some(match language {
+            "zh-CN" | "zh-SG" => "zh-CN",
+            "zh-HK" | "zh-TW" => "zh-TW",
+            _ => return None,
+        });
+    }
+    TMDB_LANGUAGE_GROUPS
+        .iter()
+        .find(|(canonical, _)| canonical.starts_with(language_code))
+        .map(|(canonical, _)| *canonical)
+}
+
 fn is_valid_tmdb_language(language: &str) -> bool {
-    TMDB_PRIMARY_TRANSLATIONS.contains(&language)
+    canonical_tmdb_language(language).is_some()
 }
 
 fn default_preferred_language() -> String {
@@ -214,13 +301,19 @@ impl TmdbSettings {
     }
 
     pub fn normalized(mut self) -> Self {
-        self.preferred_language = self.preferred_language.trim().to_owned();
+        self.preferred_language = canonical_tmdb_language(&self.preferred_language)
+            .unwrap_or(self.preferred_language.trim())
+            .to_owned();
         self.api_base_url = self.api_base_url.trim().to_owned();
         let mut seen = BTreeSet::new();
         self.fallback_languages = self
             .fallback_languages
             .into_iter()
-            .map(|language| language.trim().to_owned())
+            .map(|language| {
+                canonical_tmdb_language(&language)
+                    .unwrap_or(language.trim())
+                    .to_owned()
+            })
             .filter(|language| seen.insert(language.clone()))
             .collect();
         self
@@ -433,5 +526,60 @@ mod tests {
             serde_json::from_str(&serialized).expect("settings should deserialize");
 
         assert!(restored.title_alias_replacement_enabled);
+    }
+
+    #[test]
+    fn language_options_are_canonical_language_groups() {
+        let options = tmdb_language_options();
+        let values = options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(values[0], "zh-CN");
+        assert_eq!(values[1], "zh-TW");
+        assert_eq!(values[2], "en-US");
+        assert_eq!(
+            values
+                .iter()
+                .filter(|value| value.starts_with("en-"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            values
+                .iter()
+                .filter(|value| value.starts_with("zh-"))
+                .count(),
+            2
+        );
+        assert!(
+            options
+                .iter()
+                .any(|option| { option.value == "en-US" && option.label.contains("English") })
+        );
+        assert!(
+            options
+                .iter()
+                .any(|option| { option.value == "zh-CN" && option.label == "简体中文" })
+        );
+    }
+
+    #[test]
+    fn normalized_settings_canonicalize_legacy_regional_locales() {
+        let settings = TmdbSettings::new(
+            "en-GB".to_owned(),
+            true,
+            vec!["zh-SG".to_owned(), "zh-HK".to_owned(), "en-AU".to_owned()],
+        )
+        .expect("legacy regional locales should remain supported");
+
+        assert_eq!(settings.preferred_language, "en-US");
+        assert_eq!(settings.fallback_languages, ["zh-CN", "zh-TW", "en-US"]);
+    }
+
+    #[test]
+    fn default_fallback_uses_one_simplified_or_traditional_group() {
+        assert_eq!(TmdbSettings::default().fallback_languages, ["zh-TW"]);
     }
 }
