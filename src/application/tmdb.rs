@@ -1155,6 +1155,8 @@ pub struct TmdbMovieDetails {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct TmdbTranslationsResponse {
+    // TMDb omits the resource ID when this payload is embedded by append_to_response.
+    #[serde(default)]
     pub id: i64,
     #[serde(default)]
     pub translations: Vec<TmdbTranslation>,
@@ -1183,7 +1185,7 @@ pub struct TmdbTranslationData {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct TmdbAlternativeTitlesResponse {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, alias = "titles")]
     pub results: Vec<TmdbAlternativeTitle>,
 }
 
@@ -1740,7 +1742,7 @@ mod tests {
             let body = r#"{
                 "id":42,
                 "title":"Movie",
-                "translations":{"id":42,"translations":[
+                "translations":{"translations":[
                     {"iso_639_1":"en","iso_3166_1":"US","data":{"title":"Movie","overview":"English overview"}}
                 ]}
             }"#;
@@ -1775,5 +1777,14 @@ mod tests {
             Some("English overview")
         );
         server.await.expect("test server should finish");
+    }
+
+    #[test]
+    fn movie_alternative_titles_accepts_tmdb_titles_field() {
+        let response: TmdbAlternativeTitlesResponse =
+            serde_json::from_str(r#"{"id":42,"titles":[{"iso_3166_1":"CN","title":"中文标题"}]}"#)
+                .expect("TMDb alternative titles response should decode");
+
+        assert_eq!(response.results[0].title.as_deref(), Some("中文标题"));
     }
 }
