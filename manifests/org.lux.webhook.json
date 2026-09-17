@@ -10,12 +10,6 @@
   "category": "NOTIFICATION",
   "capabilities": ["notification.send"],
   "configFields": [{
-    "key": "url",
-    "label": "Webhook URL 模板",
-    "type": "text",
-    "required": true,
-    "description": "支持查询参数模板 {title}、{content}，也支持 {{title}}、{{content}}；参数会自动编码。"
-  }, {
     "key": "bodyTemplate",
     "label": "Body 模板",
     "type": "textarea",

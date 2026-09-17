@@ -15,6 +15,14 @@ INDEX_SCRIPT = ROOT / "scripts" / "generate-index.py"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_webhook_manifest_uses_notification_target_for_url_configuration(self):
+        manifest = json.loads((ROOT / "manifests/org.lux.webhook.json").read_text())
+        fields = {field["key"]: field for field in manifest["configFields"]}
+
+        self.assertNotIn("url", fields)
+        self.assertFalse(fields["bodyTemplate"]["required"])
+        self.assertEqual(fields["payloadFormat"]["defaultValue"], "LUX")
+
     def test_tmdb_manifest_exposes_selectable_language_and_api_options(self):
         manifest = json.loads((ROOT / "manifests/org.lux.tmdb.json").read_text())
         fields = {field["key"]: field for field in manifest["configFields"]}
