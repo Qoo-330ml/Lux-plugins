@@ -23,6 +23,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_URL_LENGTH: usize = 2048;
 const MAX_SECRET_LENGTH: usize = 256;
 const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
+const MAX_TEMPLATE_LENGTH: usize = 64 * 1024;
 const MAX_RETRY_AFTER_SECONDS: i64 = 3600;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,7 +55,8 @@ struct NotificationSendRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WebhookTarget {
-    url: String,
+    #[serde(default)]
+    url: Option<String>,
     #[serde(default)]
     allow_private_network: bool,
 }
@@ -64,6 +66,18 @@ struct WebhookTarget {
 struct WebhookConfig {
     #[serde(default)]
     payload_format: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    body_template: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct TemplateContext {
+    title: String,
+    content: String,
+    image: String,
+    icon: String,
 }
 
 #[derive(Debug)]
@@ -136,12 +150,42 @@ async fn send_notification(params: Value) -> Result<Value, PluginRpcError> {
     let secret = validate_secret(request.secret.as_deref())?;
     let format = PayloadFormat::parse(request.config.payload_format.as_deref())?;
     let payload = build_payload(&request.event, format)?;
-    let body = serde_json::to_vec(&payload).map_err(|_| invalid_response())?;
+    let context = template_context(&request.event, &payload)?;
+    let body = match request
+        .config
+        .body_template
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(template) => render_body_template(template, &context)?,
+        None => serde_json::to_vec(&payload).map_err(|_| invalid_response())?,
+    };
     if body.len() > MAX_PAYLOAD_BYTES {
         return Err(invalid_request());
     }
-    let url = validate_webhook_url(&request.target.url, request.target.allow_private_network)
+    let configured_url = request
+        .config
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let target_url = configured_url
+        .or_else(|| {
+            request
+                .target
+                .url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .ok_or_else(invalid_request)?;
+    let url = validate_webhook_url(target_url, request.target.allow_private_network)
         .map_err(|_| invalid_request())?;
+    let url = render_url_template(&url, &context).and_then(|url| {
+        validate_webhook_url(url.as_str(), request.target.allow_private_network)
+            .map_err(|_| invalid_request())
+    })?;
     let (host, address) =
         resolve_webhook_address(&url, request.target.allow_private_network).await?;
     let timestamp = unix_now().to_string();
@@ -260,6 +304,113 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
     Ok(Value::Object(payload))
 }
 
+fn template_context(event: &Value, payload: &Value) -> Result<TemplateContext, PluginRpcError> {
+    let event_type = event_string(event, "eventType")?;
+    let data = event
+        .get("data")
+        .and_then(Value::as_object)
+        .ok_or_else(invalid_request)?;
+    let title = data
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| notification_title(event_type).to_owned());
+    let content = serde_json::to_string(payload).map_err(|_| invalid_response())?;
+    Ok(TemplateContext {
+        title,
+        content,
+        image: data
+            .get("image")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        icon: data
+            .get("icon")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+    })
+}
+
+fn notification_title(event_type: &str) -> &'static str {
+    match event_type {
+        "MEDIA_ADDED" => "媒体新增",
+        "MEDIA_REMOVED" => "媒体移除",
+        "SCAN_COMPLETED" => "扫描完成",
+        "SCAN_FAILED" => "扫描失败",
+        "METADATA_UPDATED" => "元数据更新",
+        "JOB_FAILED" => "后台任务失败",
+        "PLAYBACK_STARTED" => "开始播放",
+        "PLAYBACK_PAUSED" => "暂停播放",
+        "PLAYBACK_PROGRESS" => "播放进度",
+        "PLAYBACK_STOPPED" => "停止播放",
+        _ => "Lux 通知",
+    }
+}
+
+fn replace_template_placeholders(value: &str, context: &TemplateContext) -> String {
+    let mut rendered = value.to_owned();
+    for (name, replacement) in [
+        ("title", context.title.as_str()),
+        ("content", context.content.as_str()),
+        ("image", context.image.as_str()),
+        ("icon", context.icon.as_str()),
+    ] {
+        rendered = rendered.replace(&format!("{{{{{name}}}}}"), replacement);
+        rendered = rendered.replace(&format!("{{{name}}}"), replacement);
+    }
+    rendered
+}
+
+fn render_url_template(url: &Url, context: &TemplateContext) -> Result<Url, PluginRpcError> {
+    let mut rendered = url.clone();
+    if url.query().is_some() {
+        let pairs = url
+            .query_pairs()
+            .map(|(key, value)| {
+                (
+                    replace_template_placeholders(&key, context),
+                    replace_template_placeholders(&value, context),
+                )
+            })
+            .collect::<Vec<_>>();
+        {
+            let mut query = rendered.query_pairs_mut();
+            query.clear();
+            for (key, value) in pairs {
+                query.append_pair(&key, &value);
+            }
+        }
+    }
+    Ok(rendered)
+}
+
+fn render_body_template(
+    template: &str,
+    context: &TemplateContext,
+) -> Result<Vec<u8>, PluginRpcError> {
+    if template.len() > MAX_TEMPLATE_LENGTH {
+        return Err(invalid_request());
+    }
+    let mut value = serde_json::from_str::<Value>(template).map_err(|_| invalid_request())?;
+    render_json_template(&mut value, context);
+    serde_json::to_vec(&value).map_err(|_| invalid_response())
+}
+
+fn render_json_template(value: &mut Value, context: &TemplateContext) {
+    match value {
+        Value::String(text) => *text = replace_template_placeholders(text, context),
+        Value::Array(values) => values
+            .iter_mut()
+            .for_each(|value| render_json_template(value, context)),
+        Value::Object(values) => values
+            .values_mut()
+            .for_each(|value| render_json_template(value, context)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
 fn event_string<'a>(event: &'a Value, key: &str) -> Result<&'a str, PluginRpcError> {
     event
         .get(key)
@@ -354,7 +505,14 @@ fn validate_webhook_url(value: &str, allow_private_network: bool) -> Result<Url,
     if !url.username().is_empty() || url.password().is_some() {
         return Err(WebhookUrlError::Credentials);
     }
-    if url.query().is_some() || url.fragment().is_some() {
+    if url.fragment().is_some() {
+        return Err(WebhookUrlError::QueryOrFragment);
+    }
+    if url.query_pairs().any(|(key, _)| {
+        ["secret", "token", "password", "apikey", "api_key"]
+            .iter()
+            .any(|sensitive| key.to_ascii_lowercase().contains(sensitive))
+    }) {
         return Err(WebhookUrlError::QueryOrFragment);
     }
     let host = url
@@ -548,6 +706,47 @@ mod tests {
         assert!(validate_webhook_url("http://127.0.0.1:8787/hook", true).is_ok());
         assert!(validate_webhook_url("ftp://example.com/hook", true).is_err());
         assert!(validate_webhook_url("https://example.com/hook?token=secret", true).is_err());
+    }
+
+    #[test]
+    fn webhook_url_template_replaces_and_encodes_notification_values() {
+        let url = validate_webhook_url(
+            "http://example.com/notify?route_id=route-1&title={title}&content={{content}}",
+            true,
+        )
+        .expect("template URL should be valid");
+        let rendered = render_url_template(
+            &url,
+            &TemplateContext {
+                title: "媒体新增".to_owned(),
+                content: "标题 & 内容".to_owned(),
+                image: String::new(),
+                icon: String::new(),
+            },
+        )
+        .expect("template URL should render");
+
+        let query = rendered.query_pairs().collect::<Vec<_>>();
+        assert_eq!(query[0].1, "route-1");
+        assert_eq!(query[1].1, "媒体新增");
+        assert_eq!(query[2].1, "标题 & 内容");
+    }
+
+    #[test]
+    fn body_template_renders_valid_json_with_double_or_single_brace_placeholders() {
+        let body = render_body_template(
+            r#"{"source":"lux","title":"{{title}}","content":"{content}"}"#,
+            &TemplateContext {
+                title: "媒体新增".to_owned(),
+                content: "标题 \"内容\"".to_owned(),
+                image: String::new(),
+                icon: String::new(),
+            },
+        )
+        .expect("body template should render");
+        let value: Value = serde_json::from_slice(&body).expect("rendered body should be JSON");
+        assert_eq!(value["title"], "媒体新增");
+        assert_eq!(value["content"], "标题 \"内容\"");
     }
 
     #[test]

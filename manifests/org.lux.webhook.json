@@ -10,6 +10,19 @@
   "category": "NOTIFICATION",
   "capabilities": ["notification.send"],
   "configFields": [{
+    "key": "url",
+    "label": "Webhook URL 模板",
+    "type": "text",
+    "required": true,
+    "description": "支持查询参数模板 {title}、{content}，也支持 {{title}}、{{content}}；参数会自动编码。"
+  }, {
+    "key": "bodyTemplate",
+    "label": "Body 模板",
+    "type": "textarea",
+    "required": false,
+    "defaultValue": "{\n  \"source\": \"lux\",\n  \"title\": \"{{title}}\",\n  \"content\": \"{{content}}\",\n  \"image\": \"{{image}}\",\n  \"icon\": \"{{icon}}\"\n}",
+    "description": "留空发送 Lux 原生 JSON；模板必须是 JSON，支持 {title}、{content}、{image}、{icon}。"
+  }, {
     "key": "payloadFormat",
     "label": "Payload 格式",
     "type": "select",
