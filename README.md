@@ -73,11 +73,10 @@ are documented in `README-theintrodb.md`.
 ## Webhook 通知器
 
 `org.lux.webhook` implements the Lux v1 `notification.send` contract. Lux supplies the
-provider-neutral event, target URL, private-network approval and one-time request secret; the
-plugin validates the destination again, resolves all DNS addresses, blocks redirects and sends
-an HMAC-SHA256 signed JSON request. The notification target supplies the Webhook URL, including
-optional query-parameter templates such as `{title}` and `{content}`; provider configuration
-supplies an optional JSON body template. The body template supports `{title}`, `{content}`,
-`{image}` and `{icon}`; `payloadFormat` selects the Lux native payload or the limited Emby-style
-adapter when no body template is supplied. Delivery queues, retry scheduling and secret storage
-remain owned by Lux, so this plugin has no access to the Lux configuration directory or database.
+provider-neutral event, including the unified `source`, `title`, `content`, `body`, and
+`timestamp` fields; the plugin validates the destination again, resolves all DNS addresses,
+blocks redirects and sends an HMAC-SHA256 signed JSON request. Its `payloadFormat` setting only
+selects the outer Lux-native or limited Emby-style transport shape; it does not generate or
+rewrite notification text. The target URL may reference Lux-generated fields with URL encoding.
+Delivery queues, retry scheduling and secret storage remain owned by Lux, so this plugin has no
+access to the Lux configuration directory or database.

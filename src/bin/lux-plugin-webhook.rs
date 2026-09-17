@@ -23,7 +23,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_URL_LENGTH: usize = 2048;
 const MAX_SECRET_LENGTH: usize = 256;
 const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
-const MAX_TEMPLATE_LENGTH: usize = 64 * 1024;
 const MAX_RETRY_AFTER_SECONDS: i64 = 3600;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,16 +67,8 @@ struct WebhookConfig {
     payload_format: Option<String>,
     #[serde(default)]
     url: Option<String>,
-    #[serde(default)]
-    body_template: Option<String>,
-}
-
-#[derive(Debug, Default)]
-struct TemplateContext {
-    title: String,
-    content: String,
-    image: String,
-    icon: String,
+    #[serde(rename = "bodyTemplate", default)]
+    _body_template: Option<String>,
 }
 
 #[derive(Debug)]
@@ -150,17 +141,7 @@ async fn send_notification(params: Value) -> Result<Value, PluginRpcError> {
     let secret = validate_secret(request.secret.as_deref())?;
     let format = PayloadFormat::parse(request.config.payload_format.as_deref())?;
     let payload = build_payload(&request.event, format)?;
-    let context = template_context(&request.event, &payload)?;
-    let body = match request
-        .config
-        .body_template
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Some(template) => render_body_template(template, &context)?,
-        None => serde_json::to_vec(&payload).map_err(|_| invalid_response())?,
-    };
+    let body = serde_json::to_vec(&payload).map_err(|_| invalid_response())?;
     if body.len() > MAX_PAYLOAD_BYTES {
         return Err(invalid_request());
     }
@@ -180,12 +161,10 @@ async fn send_notification(params: Value) -> Result<Value, PluginRpcError> {
                 .filter(|value| !value.is_empty())
         })
         .ok_or_else(invalid_request)?;
-    let url = validate_webhook_url(target_url, request.target.allow_private_network)
+    let template_values = build_payload(&request.event, PayloadFormat::Lux)?;
+    let rendered_url = render_url_template(target_url, &template_values)?;
+    let url = validate_webhook_url(&rendered_url, request.target.allow_private_network)
         .map_err(|_| invalid_request())?;
-    let url = render_url_template(&url, &context).and_then(|url| {
-        validate_webhook_url(url.as_str(), request.target.allow_private_network)
-            .map_err(|_| invalid_request())
-    })?;
     let (host, address) =
         resolve_webhook_address(&url, request.target.allow_private_network).await?;
     let timestamp = unix_now().to_string();
@@ -273,6 +252,11 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
         ),
     ]);
     let mappings = [
+        ("source", "Source", false),
+        ("title", "Title", false),
+        ("content", "Content", false),
+        ("body", "Body", false),
+        ("timestamp", "NotificationTimestamp", false),
         ("itemId", "Item", true),
         ("playSessionId", "PlaySessionId", false),
         ("mediaSourceId", "MediaSourceId", false),
@@ -304,111 +288,36 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
     Ok(Value::Object(payload))
 }
 
-fn template_context(event: &Value, payload: &Value) -> Result<TemplateContext, PluginRpcError> {
-    let event_type = event_string(event, "eventType")?;
-    let data = event
-        .get("data")
-        .and_then(Value::as_object)
-        .ok_or_else(invalid_request)?;
-    let title = data
-        .get("title")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| notification_title(event_type).to_owned());
-    let content = serde_json::to_string(payload).map_err(|_| invalid_response())?;
-    Ok(TemplateContext {
-        title,
-        content,
-        image: data
-            .get("image")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        icon: data
-            .get("icon")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-    })
-}
-
-fn notification_title(event_type: &str) -> &'static str {
-    match event_type {
-        "MEDIA_ADDED" => "媒体新增",
-        "MEDIA_REMOVED" => "媒体移除",
-        "SCAN_COMPLETED" => "扫描完成",
-        "SCAN_FAILED" => "扫描失败",
-        "METADATA_UPDATED" => "元数据更新",
-        "JOB_FAILED" => "后台任务失败",
-        "PLAYBACK_STARTED" => "开始播放",
-        "PLAYBACK_PAUSED" => "暂停播放",
-        "PLAYBACK_PROGRESS" => "播放进度",
-        "PLAYBACK_STOPPED" => "停止播放",
-        _ => "Lux 通知",
-    }
-}
-
-fn replace_template_placeholders(value: &str, context: &TemplateContext) -> String {
-    let mut rendered = value.to_owned();
-    for (name, replacement) in [
-        ("title", context.title.as_str()),
-        ("content", context.content.as_str()),
-        ("image", context.image.as_str()),
-        ("icon", context.icon.as_str()),
-    ] {
-        rendered = rendered.replace(&format!("{{{{{name}}}}}"), replacement);
-        rendered = rendered.replace(&format!("{{{name}}}"), replacement);
-    }
-    rendered
-}
-
-fn render_url_template(url: &Url, context: &TemplateContext) -> Result<Url, PluginRpcError> {
-    let mut rendered = url.clone();
-    if url.query().is_some() {
-        let pairs = url
-            .query_pairs()
-            .map(|(key, value)| {
-                (
-                    replace_template_placeholders(&key, context),
-                    replace_template_placeholders(&value, context),
-                )
-            })
-            .collect::<Vec<_>>();
-        {
-            let mut query = rendered.query_pairs_mut();
-            query.clear();
-            for (key, value) in pairs {
-                query.append_pair(&key, &value);
+fn render_url_template(template: &str, readable: &Value) -> Result<String, PluginRpcError> {
+    let object = readable.as_object().ok_or_else(invalid_request)?;
+    let mut rendered = template.to_owned();
+    for (key, value) in object {
+        let value = value
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| value.to_string());
+        for placeholder in [format!("{{{{{key}}}}}"), format!("{{{key}}}")] {
+            if rendered.contains(&placeholder) {
+                rendered = rendered.replace(&placeholder, &percent_encode(&value));
             }
         }
+    }
+    if rendered.len() > MAX_URL_LENGTH {
+        return Err(invalid_request());
     }
     Ok(rendered)
 }
 
-fn render_body_template(
-    template: &str,
-    context: &TemplateContext,
-) -> Result<Vec<u8>, PluginRpcError> {
-    if template.len() > MAX_TEMPLATE_LENGTH {
-        return Err(invalid_request());
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
     }
-    let mut value = serde_json::from_str::<Value>(template).map_err(|_| invalid_request())?;
-    render_json_template(&mut value, context);
-    serde_json::to_vec(&value).map_err(|_| invalid_response())
-}
-
-fn render_json_template(value: &mut Value, context: &TemplateContext) {
-    match value {
-        Value::String(text) => *text = replace_template_placeholders(text, context),
-        Value::Array(values) => values
-            .iter_mut()
-            .for_each(|value| render_json_template(value, context)),
-        Value::Object(values) => values
-            .values_mut()
-            .for_each(|value| render_json_template(value, context)),
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
+    encoded
 }
 
 fn event_string<'a>(event: &'a Value, key: &str) -> Result<&'a str, PluginRpcError> {
@@ -421,6 +330,7 @@ fn event_string<'a>(event: &'a Value, key: &str) -> Result<&'a str, PluginRpcErr
 
 fn event_field_allowed(event_type: &str, key: &str) -> bool {
     match key {
+        "source" | "title" | "content" | "body" | "timestamp" => true,
         "libraryId" | "jobId" | "jobType" | "status" | "processedCount" | "totalCount"
         | "errorCode" => matches!(
             event_type,
@@ -443,13 +353,16 @@ fn event_field_allowed(event_type: &str, key: &str) -> bool {
         ),
         "mode" | "candidateCount" => matches!(event_type, "METADATA_UPDATED" | "JOB_FAILED"),
         "test" => event_type == "JOB_FAILED",
-        "mediaSourceId" | "playSessionId" | "state" | "positionTicks" | "durationTicks"
-        | "isPaused" | "client" | "deviceName" | "deviceType" | "clientVersion" => {
+        "itemTitle" | "userName" | "container" | "size" | "bitrate" | "overview" | "playMethod"
+        | "resumed" | "mediaSourceId" | "playSessionId" | "state" | "positionTicks"
+        | "durationTicks" | "isPaused" | "client" | "deviceName" | "deviceType"
+        | "clientVersion" => {
             matches!(
                 event_type,
                 "PLAYBACK_STARTED" | "PLAYBACK_PAUSED" | "PLAYBACK_PROGRESS" | "PLAYBACK_STOPPED"
             )
         }
+        "remoteIp" => event_type == "PLAYBACK_STOPPED",
         _ => false,
     }
 }
@@ -709,44 +622,61 @@ mod tests {
     }
 
     #[test]
-    fn webhook_url_template_replaces_and_encodes_notification_values() {
-        let url = validate_webhook_url(
-            "http://example.com/notify?route_id=route-1&title={title}&content={{content}}",
-            true,
-        )
-        .expect("template URL should be valid");
-        let rendered = render_url_template(
-            &url,
-            &TemplateContext {
-                title: "媒体新增".to_owned(),
-                content: "标题 & 内容".to_owned(),
-                image: String::new(),
-                icon: String::new(),
-            },
-        )
-        .expect("template URL should render");
+    fn core_notification_fields_are_forwarded_without_plugin_rendering() {
+        let mut event = playback_event();
+        event["data"]["source"] = json!("lux");
+        event["data"]["title"] = json!("alice恢复播放 示例电影");
+        event["data"]["content"] =
+            json!("●●●○○○○○○○○○○○○○○○○○17.25%\nMKV · 直接播放\n设备：Lux Prism");
+        event["data"]["body"] = event["data"]["content"].clone();
+        event["data"]["timestamp"] = json!("2023-11-14T22:13:20Z");
 
-        let query = rendered.query_pairs().collect::<Vec<_>>();
-        assert_eq!(query[0].1, "route-1");
-        assert_eq!(query[1].1, "媒体新增");
-        assert_eq!(query[2].1, "标题 & 内容");
+        let lux_payload = build_payload(&event, PayloadFormat::Lux).expect("Lux payload");
+        assert_eq!(lux_payload["source"], "lux");
+        assert_eq!(lux_payload["title"], "alice恢复播放 示例电影");
+        assert_eq!(lux_payload["content"], event["data"]["content"]);
+        assert_eq!(lux_payload["body"], lux_payload["content"]);
+        assert_eq!(lux_payload["timestamp"], "2023-11-14T22:13:20Z");
+
+        let emby_payload = build_payload(&event, PayloadFormat::Emby).expect("Emby payload");
+        assert_eq!(emby_payload["Source"], "lux");
+        assert_eq!(emby_payload["Title"], "alice恢复播放 示例电影");
+        assert_eq!(emby_payload["Content"], event["data"]["content"]);
+        assert_eq!(emby_payload["Body"], emby_payload["Content"]);
+        assert_eq!(
+            emby_payload["NotificationTimestamp"],
+            "2023-11-14T22:13:20Z"
+        );
+
+        let url = render_url_template(
+            "https://qmby.example.com/notify?title={title}&content={content}",
+            &lux_payload,
+        )
+        .expect("URL template");
+        assert!(url.contains(
+            "title=alice%E6%81%A2%E5%A4%8D%E6%92%AD%E6%94%BE%20%E7%A4%BA%E4%BE%8B%E7%94%B5%E5%BD%B1"
+        ));
+        assert!(url.contains("content=%E2%97%8F"));
     }
 
     #[test]
-    fn body_template_renders_valid_json_with_double_or_single_brace_placeholders() {
-        let body = render_body_template(
-            r#"{"source":"lux","title":"{{title}}","content":"{content}"}"#,
-            &TemplateContext {
-                title: "媒体新增".to_owned(),
-                content: "标题 \"内容\"".to_owned(),
-                image: String::new(),
-                icon: String::new(),
+    fn legacy_body_template_is_accepted_but_not_used() {
+        let request = serde_json::from_value::<NotificationSendRequest>(json!({
+            "event": playback_event(),
+            "target": {"url": "https://example.com/hook"},
+            "config": {
+                "url": "https://example.com/hook",
+                "bodyTemplate": "{\"title\":\"overridden\"}",
+                "payloadFormat": "LUX"
             },
-        )
-        .expect("body template should render");
-        let value: Value = serde_json::from_slice(&body).expect("rendered body should be JSON");
-        assert_eq!(value["title"], "媒体新增");
-        assert_eq!(value["content"], "标题 \"内容\"");
+            "secret": "1234567890123456"
+        }))
+        .expect("legacy bodyTemplate should remain deserializable");
+        assert_eq!(request.config.payload_format.as_deref(), Some("LUX"));
+        assert_eq!(
+            request.config._body_template.as_deref(),
+            Some("{\"title\":\"overridden\"}")
+        );
     }
 
     #[test]
@@ -770,6 +700,28 @@ mod tests {
             "occurredAt": 1700000000,
             "serverId": "server-1",
             "data": {"libraryId": "library-1", "addedCount": 1}
+        })
+    }
+
+    fn playback_event() -> Value {
+        json!({
+            "schemaVersion": 1,
+            "eventId": "event-1",
+            "eventType": "PLAYBACK_STARTED",
+            "occurredAt": 1_700_000_000_i64,
+            "serverId": "server-1",
+            "data": {
+                "itemTitle": "示例电影",
+                "userName": "alice",
+                "positionTicks": 1_725_i64,
+                "durationTicks": 10_000_i64,
+                "container": "mkv",
+                "playMethod": "DirectPlay",
+                "resumed": true,
+                "client": "Lux Prism",
+                "deviceName": "Lux Prism",
+                "deviceType": "Lux Prism"
+            }
         })
     }
 }

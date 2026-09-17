@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "org.lux.webhook",
   "name": "Webhook 通知器",
-  "description": "将 Lux 事件发送到 HTTP(S) Webhook，支持 Lux 原生和有限 Emby 风格 payload。",
+  "description": "将 Lux 核心生成的统一通知内容发送到 HTTP(S) Webhook。",
   "version": "__VERSION__",
   "apiVersion": 1,
   "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
@@ -10,13 +10,6 @@
   "category": "NOTIFICATION",
   "capabilities": ["notification.send"],
   "configFields": [{
-    "key": "bodyTemplate",
-    "label": "Body 模板",
-    "type": "textarea",
-    "required": false,
-    "defaultValue": "{\n  \"source\": \"lux\",\n  \"title\": \"{{title}}\",\n  \"content\": \"{{content}}\",\n  \"image\": \"{{image}}\",\n  \"icon\": \"{{icon}}\"\n}",
-    "description": "留空发送 Lux 原生 JSON；模板必须是 JSON，支持 {title}、{content}、{image}、{icon}。"
-  }, {
     "key": "payloadFormat",
     "label": "Payload 格式",
     "type": "select",
