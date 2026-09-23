@@ -595,6 +595,7 @@ impl PluginRequest {
 pub enum LoginBackgroundContentKind {
     PosterFeed,
     HeroImage,
+    SinglePoster,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

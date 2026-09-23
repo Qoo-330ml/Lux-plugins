@@ -27,16 +27,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
         image_hosts = set(manifest["permissions"]["imageHosts"])
         self.assertTrue(image_hosts)
 
-        for fixture_name in ("poster-feed-v1.json", "hero-image-v1.json"):
+        for fixture_name in (
+            "poster-feed-v1.json",
+            "hero-image-v1.json",
+            "single-poster-v1.json",
+        ):
             result = json.loads((fixture_directory / fixture_name).read_text())
             self.assertLessEqual(
                 set(result),
                 {"contentKind", "sourceName", "copyrightNotice", "items"},
             )
-            self.assertIn(result["contentKind"], {"POSTER_FEED", "HERO_IMAGE"})
+            self.assertIn(
+                result["contentKind"],
+                {"POSTER_FEED", "HERO_IMAGE", "SINGLE_POSTER"},
+            )
             self.assertIsInstance(result["sourceName"], str)
             self.assertLessEqual(len(result["items"]), 40)
-            if result["contentKind"] == "HERO_IMAGE":
+            if result["contentKind"] in {"HERO_IMAGE", "SINGLE_POSTER"}:
                 self.assertEqual(len(result["items"]), 1)
 
             for item in result["items"]:
