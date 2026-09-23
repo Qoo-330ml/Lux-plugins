@@ -1,0 +1,12 @@
+{
+  "contentKind": "HERO_IMAGE",
+  "sourceName": "Example panorama",
+  "copyrightNotice": "Example panorama attribution",
+  "items": [
+    {
+      "imageUrl": "https://images.example.com/backgrounds/example.jpg",
+      "title": "Example landscape",
+      "copyrightNotice": "© Example rights holder"
+    }
+  ]
+}

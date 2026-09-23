@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.parse import urlsplit
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -15,6 +16,42 @@ INDEX_SCRIPT = ROOT / "scripts" / "generate-index.py"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_login_background_sdk_fixtures_match_the_versioned_contract(self):
+        fixture_directory = ROOT / "tests/fixtures/login-background"
+        manifest = json.loads((fixture_directory / "manifest-v1.json").read_text())
+        self.assertEqual(manifest["formatVersion"], 1)
+        self.assertEqual(manifest["apiVersion"], 1)
+        self.assertEqual(manifest["type"], "login_background")
+        self.assertEqual(manifest["category"], "UTILITY")
+        self.assertEqual(manifest["capabilities"], ["login_background.get"])
+        image_hosts = set(manifest["permissions"]["imageHosts"])
+        self.assertTrue(image_hosts)
+
+        for fixture_name in ("poster-feed-v1.json", "hero-image-v1.json"):
+            result = json.loads((fixture_directory / fixture_name).read_text())
+            self.assertLessEqual(
+                set(result),
+                {"contentKind", "sourceName", "copyrightNotice", "items"},
+            )
+            self.assertIn(result["contentKind"], {"POSTER_FEED", "HERO_IMAGE"})
+            self.assertIsInstance(result["sourceName"], str)
+            self.assertLessEqual(len(result["items"]), 40)
+            if result["contentKind"] == "HERO_IMAGE":
+                self.assertEqual(len(result["items"]), 1)
+
+            for item in result["items"]:
+                self.assertLessEqual(
+                    set(item), {"imageUrl", "title", "copyrightNotice"}
+                )
+                image_url = item["imageUrl"]
+                parsed_url = urlsplit(image_url)
+                self.assertLessEqual(len(image_url.encode()), 2048)
+                self.assertEqual(parsed_url.scheme, "https")
+                self.assertIn(parsed_url.hostname, image_hosts)
+                self.assertIsNone(parsed_url.username)
+                self.assertIsNone(parsed_url.password)
+                self.assertFalse(parsed_url.fragment)
+
     def test_webhook_manifest_uses_notification_target_for_url_configuration(self):
         manifest = json.loads((ROOT / "manifests/org.lux.webhook.json").read_text())
         fields = {field["key"]: field for field in manifest["configFields"]}
