@@ -10,7 +10,7 @@ IMAGE_TYPES = {"SINGLE_POSTER", "SINGLE_IMAGE", "HERO_IMAGE"}
 
 
 class LoginBackgroundContractTests(unittest.TestCase):
-    def test_only_the_license_filtered_commons_provider_is_registered_for_release(self):
+    def test_independent_commons_and_tmdb_providers_are_registered_for_release(self):
         plugins = json.loads((ROOT / "plugins.json").read_text())
         plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
 
@@ -23,7 +23,25 @@ class LoginBackgroundContractTests(unittest.TestCase):
                 "manifest": "manifests/org.lux.wikimedia-potd-background.json",
             },
         )
-        self.assertNotIn("org.lux.tmdb-trending-background", plugins_by_id)
+        tmdb_plugin = plugins_by_id["org.lux.tmdb-trending-background"]
+        self.assertEqual(
+            tmdb_plugin,
+            {
+                "id": "org.lux.tmdb-trending-background",
+                "binary": "lux-plugin-tmdb-trending-background",
+                "version": "0.1.0",
+                "manifest": "manifests/org.lux.tmdb-trending-background.json",
+            },
+        )
+        tmdb_manifest = json.loads(
+            (ROOT / tmdb_plugin["manifest"]).read_text()
+        )
+        self.assertEqual(tmdb_manifest["id"], tmdb_plugin["id"])
+        self.assertEqual(tmdb_manifest["type"], "login_background")
+        self.assertEqual(
+            [field["key"] for field in tmdb_manifest["configFields"]],
+            ["licenseReviewed"],
+        )
 
     def test_provider_fixtures_match_manifest_hosts_and_bounded_response_contract(self):
         manifest = json.loads((FIXTURES / "manifest-v1.json").read_text())
