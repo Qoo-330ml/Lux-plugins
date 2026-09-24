@@ -9,7 +9,10 @@ fn external_plugin_sdk_deserializes_and_reserializes_v1_result_fixtures() {
         .expect("SDK should accept the login background manifest fixture");
     assert_eq!(manifest.plugin_type, "login_background");
     assert_eq!(manifest.category, "UTILITY");
-    assert_eq!(manifest.permissions.image_hosts, ["images.example.com"]);
+    assert_eq!(
+        manifest.permissions.image_hosts,
+        ["images.example.com", "thumb.wikimedia.org"]
+    );
 
     for fixture in [
         include_str!("fixtures/login-background/poster-feed-v1.json"),

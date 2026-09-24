@@ -13,7 +13,7 @@
   "capabilities": ["login_background.get"],
   "permissions": {
     "network": ["api.example.com", "commons.wikimedia.org", "creativecommons.org"],
-    "imageHosts": ["images.example.com"],
+    "imageHosts": ["images.example.com", "thumb.wikimedia.org"],
     "filesystem": []
   },
   "files": []
