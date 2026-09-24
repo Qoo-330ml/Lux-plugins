@@ -1,0 +1,37 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "id": 42,
+      "media_type": "person",
+      "name": "Ignored person",
+      "poster_path": "/person-poster.jpg"
+    },
+    {
+      "id": 51,
+      "media_type": "movie",
+      "title": "No poster",
+      "poster_path": null
+    },
+    {
+      "id": 61,
+      "media_type": "tv",
+      "name": "榜首剧集",
+      "poster_path": "/first-tv-poster.jpg"
+    },
+    {
+      "id": 61,
+      "media_type": "tv",
+      "name": "榜首剧集重复项",
+      "poster_path": "/first-tv-poster.jpg"
+    },
+    {
+      "id": 72,
+      "media_type": "movie",
+      "title": "榜单后续电影",
+      "poster_path": "/later-movie-poster.jpg"
+    }
+  ],
+  "total_pages": 1,
+  "total_results": 5
+}
