@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.wikimedia-potd-background",
+  "name": "Wikimedia Commons 每日图片",
+  "description": "使用 Wikimedia Commons 每日精选图片；逐项检查授权并显示作者、作品页和许可证链接。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "login_background",
+  "category": "UTILITY",
+  "capabilities": ["login_background.get"],
+  "permissions": {
+    "network": ["commons.wikimedia.org", "creativecommons.org"],
+    "imageHosts": ["thumb.wikimedia.org"],
+    "filesystem": []
+  },
+  "files": []
+}
