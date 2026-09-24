@@ -226,19 +226,16 @@ fn login_background_result(
         else {
             continue;
         };
-        let title = result
-            .get("title")
-            .or_else(|| result.get("name"))
-            .and_then(Value::as_str)
-            .and_then(safe_title);
         return Ok(LoginBackgroundRpcResult {
             content_kind: LoginBackgroundContentKind::SinglePoster,
             source_name: "TMDb 日榜".to_owned(),
             copyright_notice: None,
             items: vec![LoginBackgroundRpcItem {
                 image_url,
-                title,
+                title: None,
                 copyright_notice: None,
+                attribution_url: None,
+                license_url: None,
             }],
         });
     }
@@ -269,14 +266,6 @@ fn poster_image_url(path: &str) -> Option<String> {
         return None;
     }
     Some(url.into())
-}
-
-fn safe_title(title: &str) -> Option<String> {
-    let title = title.trim();
-    if title.is_empty() || title.chars().count() > 256 || title.chars().any(char::is_control) {
-        return None;
-    }
-    Some(title.to_owned())
 }
 
 #[cfg(test)]
@@ -310,7 +299,7 @@ mod tests {
             result.items[0].image_url,
             "https://image.tmdb.org/t/p/w500/first-tv-poster.jpg"
         );
-        assert_eq!(result.items[0].title.as_deref(), Some("榜首剧集"));
+        assert!(result.items[0].title.is_none());
     }
 
     #[test]
