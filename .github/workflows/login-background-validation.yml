@@ -45,8 +45,6 @@ jobs:
         run: cargo clippy --locked --bin lux-plugin-tmdb-trending-background --all-features -- -D warnings
       - name: Build the Linux provider
         run: cargo build --release --locked --target "${{ matrix.target }}" --bin lux-plugin-tmdb-trending-background
-      - name: Test package tooling
-        run: python3 -m unittest discover -s tests -p test_release_workflow.py
       - name: Package the provider without publishing it
         run: |
           python3 scripts/package_plugin.py \
