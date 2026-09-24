@@ -25,12 +25,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(manifest["category"], "UTILITY")
         self.assertEqual(manifest["capabilities"], ["login_background.get"])
         image_hosts = set(manifest["permissions"]["imageHosts"])
+        network_hosts = set(manifest["permissions"].get("network", []))
         self.assertTrue(image_hosts)
 
         for fixture_name in (
             "poster-feed-v1.json",
             "hero-image-v1.json",
             "single-poster-v1.json",
+            "single-image-v1.json",
         ):
             result = json.loads((fixture_directory / fixture_name).read_text())
             self.assertLessEqual(
@@ -39,16 +41,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
             )
             self.assertIn(
                 result["contentKind"],
-                {"POSTER_FEED", "HERO_IMAGE", "SINGLE_POSTER"},
+                {"POSTER_FEED", "HERO_IMAGE", "SINGLE_POSTER", "SINGLE_IMAGE"},
             )
             self.assertIsInstance(result["sourceName"], str)
             self.assertLessEqual(len(result["items"]), 40)
-            if result["contentKind"] in {"HERO_IMAGE", "SINGLE_POSTER"}:
+            if result["contentKind"] in {"HERO_IMAGE", "SINGLE_POSTER", "SINGLE_IMAGE"}:
                 self.assertEqual(len(result["items"]), 1)
 
             for item in result["items"]:
                 self.assertLessEqual(
-                    set(item), {"imageUrl", "title", "copyrightNotice"}
+                    set(item),
+                    {
+                        "imageUrl",
+                        "title",
+                        "copyrightNotice",
+                        "attributionUrl",
+                        "licenseUrl",
+                    },
                 )
                 image_url = item["imageUrl"]
                 parsed_url = urlsplit(image_url)
@@ -58,6 +67,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertIsNone(parsed_url.username)
                 self.assertIsNone(parsed_url.password)
                 self.assertFalse(parsed_url.fragment)
+
+                for field in ("attributionUrl", "licenseUrl"):
+                    if field not in item:
+                        continue
+                    parsed_link = urlsplit(item[field])
+                    self.assertEqual(parsed_link.scheme, "https")
+                    self.assertIn(parsed_link.hostname, network_hosts)
+                    self.assertIsNone(parsed_link.username)
+                    self.assertIsNone(parsed_link.password)
+                    self.assertIsNone(parsed_link.port)
+                    self.assertFalse(parsed_link.fragment)
 
     def test_webhook_manifest_uses_notification_target_for_url_configuration(self):
         manifest = json.loads((ROOT / "manifests/org.lux.webhook.json").read_text())

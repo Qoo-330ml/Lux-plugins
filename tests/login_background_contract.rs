@@ -15,6 +15,7 @@ fn external_plugin_sdk_deserializes_and_reserializes_v1_result_fixtures() {
         include_str!("fixtures/login-background/poster-feed-v1.json"),
         include_str!("fixtures/login-background/hero-image-v1.json"),
         include_str!("fixtures/login-background/single-poster-v1.json"),
+        include_str!("fixtures/login-background/single-image-v1.json"),
     ] {
         let value: serde_json::Value =
             serde_json::from_str(fixture).expect("result fixture should be valid JSON");
