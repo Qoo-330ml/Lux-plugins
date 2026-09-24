@@ -20,7 +20,7 @@ use tokio::{
 };
 
 const PLUGIN_ID: &str = "org.lux.tmdb-trending-background";
-const PLUGIN_NAME: &str = "TMDb 日榜海报背景";
+const PLUGIN_NAME: &str = "TMDb 日榜横幅背景";
 const MAX_CONFIG_BYTES: usize = 32 * 1024;
 const REQUEST_LANGUAGE: &str = "zh-CN";
 const TMDB_IMAGE_HOST: &str = "image.tmdb.org";
@@ -28,16 +28,12 @@ const TMDB_IMAGE_HOST: &str = "image.tmdb.org";
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PluginConfig {
-    api_key: Option<String>,
     license_reviewed: Option<String>,
 }
 
 impl PluginConfig {
     fn is_configured(&self) -> bool {
-        self.api_key
-            .as_deref()
-            .is_some_and(|key| !key.trim().is_empty())
-            && self.license_reviewed.as_deref() == Some("reviewed")
+        self.license_reviewed.as_deref() == Some("reviewed")
     }
 }
 
@@ -48,18 +44,18 @@ enum LoginBackgroundRpcError {
     ConfigurationInvalid,
     Upstream,
     InvalidResponse,
-    NoPoster,
+    NoBackdrop,
 }
 
 impl fmt::Display for LoginBackgroundRpcError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::InvalidRequest => "invalid login background request",
-            Self::ConfigurationRequired => "TMDb API Key and license review are required",
+            Self::ConfigurationRequired => "TMDb license review is required",
             Self::ConfigurationInvalid => "TMDb background configuration is invalid",
             Self::Upstream => "TMDb daily trending is temporarily unavailable",
             Self::InvalidResponse => "TMDb returned an invalid daily trending response",
-            Self::NoPoster => "TMDb daily trending has no movie or TV poster available",
+            Self::NoBackdrop => "TMDb daily trending has no movie or TV backdrop available",
         };
         formatter.write_str(message)
     }
@@ -79,7 +75,7 @@ impl From<LoginBackgroundRpcError> for PluginRpcError {
             }
             LoginBackgroundRpcError::Upstream => "LOGIN_BACKGROUND_UPSTREAM_ERROR",
             LoginBackgroundRpcError::InvalidResponse => "LOGIN_BACKGROUND_INVALID_RESPONSE",
-            LoginBackgroundRpcError::NoPoster => "LOGIN_BACKGROUND_NO_POSTER",
+            LoginBackgroundRpcError::NoBackdrop => "LOGIN_BACKGROUND_NO_BACKDROP",
         };
         Self {
             code: code.to_owned(),
@@ -151,23 +147,16 @@ async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
     if !config.is_configured() {
         return Err(LoginBackgroundRpcError::ConfigurationRequired.into());
     }
-    let api_key = config
-        .api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .ok_or_else(|| PluginRpcError::from(LoginBackgroundRpcError::ConfigurationRequired))?;
     let proxy_url = proxy_url_from_env()
         .map_err(|_| PluginRpcError::from(LoginBackgroundRpcError::ConfigurationInvalid))?;
-    let client = TmdbClient::new(TmdbClientConfig {
-        api_key: Some(api_key.to_owned()),
+    let client = TmdbClient::new_with_embedded_fallback(TmdbClientConfig {
         proxy_url,
         timeout: Duration::from_secs(10),
         max_retries: 3,
         ..TmdbClientConfig::default()
     })
     .map_err(|_| PluginRpcError::from(LoginBackgroundRpcError::ConfigurationInvalid))?;
-    let result = fetch_daily_poster(&client)
+    let result = fetch_daily_backdrop(&client)
         .await
         .map_err(PluginRpcError::from)?;
     serde_json::to_value(result)
@@ -191,7 +180,7 @@ async fn read_plugin_config() -> Result<PluginConfig, LoginBackgroundRpcError> {
     serde_json::from_slice(&bytes).map_err(|_| LoginBackgroundRpcError::ConfigurationInvalid)
 }
 
-async fn fetch_daily_poster(
+async fn fetch_daily_backdrop(
     client: &TmdbClient,
 ) -> Result<LoginBackgroundRpcResult, LoginBackgroundRpcError> {
     let response = client
@@ -220,15 +209,15 @@ fn login_background_result(
             continue;
         }
         let Some(image_url) = result
-            .get("poster_path")
+            .get("backdrop_path")
             .and_then(Value::as_str)
-            .and_then(poster_image_url)
+            .and_then(backdrop_image_url)
         else {
             continue;
         };
         return Ok(LoginBackgroundRpcResult {
-            content_kind: LoginBackgroundContentKind::SinglePoster,
-            source_name: "TMDb 日榜".to_owned(),
+            content_kind: LoginBackgroundContentKind::SingleImage,
+            source_name: "TMDb 日榜横幅".to_owned(),
             copyright_notice: None,
             items: vec![LoginBackgroundRpcItem {
                 image_url,
@@ -239,10 +228,10 @@ fn login_background_result(
             }],
         });
     }
-    Err(LoginBackgroundRpcError::NoPoster)
+    Err(LoginBackgroundRpcError::NoBackdrop)
 }
 
-fn poster_image_url(path: &str) -> Option<String> {
+fn backdrop_image_url(path: &str) -> Option<String> {
     if path.is_empty()
         || path.len() > 512
         || !path.starts_with('/')
@@ -257,7 +246,7 @@ fn poster_image_url(path: &str) -> Option<String> {
     {
         return None;
     }
-    let url = Url::parse(&format!("https://{TMDB_IMAGE_HOST}/t/p/w500{path}")).ok()?;
+    let url = Url::parse(&format!("https://{TMDB_IMAGE_HOST}/t/p/w1280{path}")).ok()?;
     if url.scheme() != "https"
         || url.host_str() != Some(TMDB_IMAGE_HOST)
         || url.query().is_some()
@@ -279,41 +268,39 @@ mod tests {
     use serde_json::{Value, json};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    use super::{LoginBackgroundRpcError, login_background_result, poster_image_url};
+    use super::{LoginBackgroundRpcError, backdrop_image_url, login_background_result};
 
     #[test]
-    fn selects_the_first_movie_or_tv_poster_in_original_trending_order() {
+    fn selects_the_first_movie_or_tv_backdrop_in_original_trending_order() {
         let payload: Value = serde_json::from_str(include_str!(
             "../../tests/fixtures/login-background/tmdb-trending-day-v1.json"
         ))
         .expect("Trending fixture should be valid JSON");
 
-        let result = login_background_result(&payload).expect("fixture should contain a poster");
+        let result = login_background_result(&payload).expect("fixture should contain a backdrop");
 
-        assert_eq!(
-            result.content_kind,
-            LoginBackgroundContentKind::SinglePoster
-        );
+        assert_eq!(result.content_kind, LoginBackgroundContentKind::SingleImage);
         assert_eq!(result.items.len(), 1);
         assert_eq!(
             result.items[0].image_url,
-            "https://image.tmdb.org/t/p/w500/first-tv-poster.jpg"
+            "https://image.tmdb.org/t/p/w1280/first-tv-backdrop.jpg"
         );
         assert!(result.items[0].title.is_none());
     }
 
     #[test]
-    fn rejects_empty_or_invalid_trending_results() {
+    fn rejects_empty_or_invalid_backdrop_results_without_falling_back_to_posters() {
         for payload in [
             json!({"results": []}),
-            json!({"results": [{"media_type": "person", "poster_path": "/actor.jpg"}]}),
-            json!({"results": [{"media_type": "movie", "poster_path": null}]}),
-            json!({"results": [{"media_type": "tv", "poster_path": "https://attacker.invalid/poster.jpg"}]}),
+            json!({"results": [{"media_type": "person", "backdrop_path": "/actor.jpg"}]}),
+            json!({"results": [{"media_type": "episode", "backdrop_path": "/episode.jpg"}]}),
+            json!({"results": [{"media_type": "movie", "poster_path": "/poster-only.jpg", "backdrop_path": null}]}),
+            json!({"results": [{"media_type": "tv", "backdrop_path": "https://attacker.invalid/backdrop.jpg"}]}),
         ] {
             assert!(
                 matches!(
                     login_background_result(&payload),
-                    Err(LoginBackgroundRpcError::NoPoster)
+                    Err(LoginBackgroundRpcError::NoBackdrop)
                 ),
                 "unexpected trending payload accepted: {payload}"
             );
@@ -321,23 +308,23 @@ mod tests {
     }
 
     #[test]
-    fn poster_paths_cannot_override_the_tmdb_image_host_or_path() {
+    fn backdrop_paths_cannot_override_the_tmdb_image_host_or_path() {
         for path in [
-            "//attacker.invalid/poster.jpg",
-            "https://attacker.invalid/poster.jpg",
+            "//attacker.invalid/backdrop.jpg",
+            "https://attacker.invalid/backdrop.jpg",
             "/../../internal.jpg",
-            "/poster.jpg?next=attacker",
-            "/poster.jpg#fragment",
+            "/backdrop.jpg?next=attacker",
+            "/backdrop.jpg#fragment",
             "/poster.jpg\\..\\internal.jpg",
         ] {
             assert!(
-                poster_image_url(path).is_none(),
+                backdrop_image_url(path).is_none(),
                 "accepted unsafe path {path:?}"
             );
         }
         assert_eq!(
-            poster_image_url("/movie/poster.jpg").as_deref(),
-            Some("https://image.tmdb.org/t/p/w500/movie/poster.jpg")
+            backdrop_image_url("/movie/backdrop.jpg").as_deref(),
+            Some("https://image.tmdb.org/t/p/w1280/movie/backdrop.jpg")
         );
     }
 
@@ -359,7 +346,7 @@ mod tests {
             manifest
                 .config_fields
                 .iter()
-                .any(|field| field.key == "apiKey" && field.sensitive)
+                .all(|field| field.key != "apiKey")
         );
         assert!(
             manifest
@@ -370,25 +357,23 @@ mod tests {
     }
 
     #[test]
-    fn configuration_requires_its_own_key_and_explicit_license_review() {
+    fn configuration_requires_explicit_license_review_but_no_api_key() {
         let unconfigured = super::PluginConfig::default();
         assert!(!unconfigured.is_configured());
 
-        let key_only = super::PluginConfig {
-            api_key: Some(" own-provider-key ".to_owned()),
+        let unreviewed = super::PluginConfig {
             license_reviewed: None,
         };
-        assert!(!key_only.is_configured());
+        assert!(!unreviewed.is_configured());
 
         let reviewed = super::PluginConfig {
-            api_key: Some(" own-provider-key ".to_owned()),
             license_reviewed: Some("reviewed".to_owned()),
         };
         assert!(reviewed.is_configured());
     }
 
     #[tokio::test]
-    async fn calls_only_trending_all_day_with_the_plugin_key() {
+    async fn calls_only_trending_all_day_with_the_embedded_fallback_key() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("mock server should bind");
@@ -418,23 +403,21 @@ mod tests {
                 .expect("response should write");
             String::from_utf8(request).expect("request should be valid HTTP text")
         });
-        let client = TmdbClient::new(TmdbClientConfig {
+        let client = TmdbClient::new_with_embedded_fallback(TmdbClientConfig {
             base_url: format!("http://{address}/"),
-            api_key: Some("fixture-secret".to_owned()),
             timeout: Duration::from_secs(2),
+            follow_redirects: false,
             max_retries: 0,
             requests_per_second: 32,
             ..TmdbClientConfig::default()
         })
-        .expect("mock client should build");
+        .expect("mock client should use the embedded fallback key");
 
-        let result = super::fetch_daily_poster(&client)
+        let result = super::fetch_daily_backdrop(&client)
             .await
             .expect("mock daily trending request should succeed");
         assert_eq!(result.items.len(), 1);
         let request = server.await.expect("mock server task should finish");
-        assert!(request.starts_with(
-            "GET /3/trending/all/day?language=zh-CN&api_key=fixture-secret HTTP/1.1\r\n"
-        ));
+        assert!(request.starts_with("GET /3/trending/all/day?language=zh-CN&api_key="));
     }
 }

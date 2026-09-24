@@ -73,6 +73,14 @@ impl TmdbClient {
         Self::new_with_fallback(config, None)
     }
 
+    /// Uses the embedded TMDb API key only when no credential is supplied in `config`.
+    pub fn new_with_embedded_fallback(config: TmdbClientConfig) -> Result<Self, TmdbError> {
+        Self::new_with_fallback(
+            config,
+            Some(TmdbCredential::ApiKey(EMBEDDED_TMDB_API_KEY.to_owned())),
+        )
+    }
+
     fn new_with_fallback(
         config: TmdbClientConfig,
         fallback_credential: Option<TmdbCredential>,
@@ -1674,6 +1682,21 @@ mod tests {
     #[test]
     fn redirect_following_remains_enabled_for_existing_tmdb_clients_by_default() {
         assert!(TmdbClientConfig::default().follow_redirects);
+    }
+
+    #[test]
+    fn embedded_fallback_constructor_supplies_an_api_key_without_plugin_credentials() {
+        let client = TmdbClient::new_with_embedded_fallback(TmdbClientConfig::default())
+            .expect("embedded fallback should configure an API-key credential");
+
+        assert!(matches!(
+            client.fallback_credential,
+            TmdbCredential::ApiKey(_)
+        ));
+        assert!(matches!(
+            TmdbClient::new(TmdbClientConfig::default()),
+            Err(TmdbError::MissingToken)
+        ));
     }
 
     #[tokio::test]
