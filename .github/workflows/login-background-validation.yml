@@ -41,6 +41,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Test the login background SDK and provider
         run: cargo test --locked --bin lux-plugin-tmdb-trending-background --test login_background_contract
+      - name: Test redirect behavior in the shared TMDb client
+        run: cargo test --locked --lib application::tmdb::tests
       - name: Lint the provider
         run: cargo clippy --locked --bin lux-plugin-tmdb-trending-background --all-features -- -D warnings
       - name: Build the Linux provider
