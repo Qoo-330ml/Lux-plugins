@@ -26,3 +26,14 @@
 - 插件配置会要求管理员确认已核对适用许可，但该确认不是授权，也不能确定部署是否商业用途。因此本次不把插件加入 `plugins.json`、`index.json` 或正式发布包；须由项目所有者确认实际用途符合许可，商业用途须先有书面协议后，才开放目录发布/启用。
 
 此记录是工程来源审查，不构成法律意见。
+
+## Wikimedia Commons Picture of the Day
+
+审查日期：2026-09-24
+
+- 使用 [Wikimedia Commons 官方 Action API](https://commons.wikimedia.org/w/api.php)读取 `Template:Potd/YYYY-MM-DD` 的 wikitext，再通过 `action=query&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=1920` 获取该文件的缩略图、描述页、MIME 与结构化许可/作者元数据。
+- 已对 Commons 当日 POTD API 做只读实测：模板返回了单一 `{{Potd filename|1=...}}` 文件名；`imageinfo/extmetadata` 返回图片 URL、描述页、`LicenseShortName`、`LicenseUrl`、`Artist` 和 `ImageDescription`。示例为 `CC BY-SA 4.0`，其图片由 `thumb.wikimedia.org` 按长边 1920px 提供，Lux 不下载、缓存、裁切或重编码图片。
+- 插件只允许公共领域/CC0/CC BY/CC BY-SA（支持 CC 1.0、2.0、2.5、3.0、4.0）；逐文件检查准确的许可证短名与 Creative Commons 官方 HTTPS 许可 URL，拒绝 NC、ND、未知许可和缺作者/作品描述页。原始作者 HTML 仅用有界 XML 文本抽取器转成纯文本，不会作为 HTML 渲染。
+- 返回的作品页与许可证 URL 受 manifest `network` 主机白名单约束；图片 URL 限定在 `thumb.wikimedia.org`。宿主将署名作为图像外部的独立文字/链接呈现。
+
+此记录是工程来源审查，不构成法律意见。
