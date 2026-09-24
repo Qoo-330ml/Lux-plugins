@@ -23,6 +23,8 @@ pub(crate) const EMBEDDED_TMDB_API_KEY: &str = "f6bd687ffa63cd282b6ff2c6877f2669
 pub struct TmdbClientConfig {
     pub base_url: String,
     pub proxy_url: Option<String>,
+    /// Preserve the existing metadata client's behavior unless a provider opts out.
+    pub follow_redirects: bool,
     pub api_key: Option<String>,
     pub read_access_token: Option<String>,
     pub timeout: Duration,
@@ -38,6 +40,7 @@ impl Default for TmdbClientConfig {
         Self {
             base_url: DEFAULT_BASE_URL.to_owned(),
             proxy_url: None,
+            follow_redirects: true,
             api_key: None,
             read_access_token: None,
             timeout: Duration::from_secs(10),
@@ -108,6 +111,11 @@ impl TmdbClient {
             Duration::from_nanos(nanos)
         });
         let http = Client::builder().timeout(config.timeout);
+        let http = if config.follow_redirects {
+            http
+        } else {
+            http.redirect(reqwest::redirect::Policy::none())
+        };
         let http = apply_proxy(http, config.proxy_url.as_deref())
             .map_err(|error| TmdbError::InvalidProxyUrl(error.to_string()))?
             .build()
@@ -1661,6 +1669,53 @@ mod tests {
             });
             assert!(result.is_err(), "expected {base_url} to be rejected");
         }
+    }
+
+    #[test]
+    fn redirect_following_remains_enabled_for_existing_tmdb_clients_by_default() {
+        assert!(TmdbClientConfig::default().follow_redirects);
+    }
+
+    #[tokio::test]
+    async fn can_disable_redirects_for_provider_requests() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener should bind");
+        let address = listener.local_addr().expect("test listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("test request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let bytes = stream.read(&mut buffer).await.expect("read request");
+                if bytes == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/redirect-target\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("write redirect response");
+        });
+
+        let client = TmdbClient::new(TmdbClientConfig {
+            base_url: format!("http://{address}"),
+            api_key: Some("test-key".to_owned()),
+            max_retries: 0,
+            follow_redirects: false,
+            ..TmdbClientConfig::default()
+        })
+        .expect("test client should build");
+        let result = client.request_value("3/trending/all/day", &[]).await;
+
+        assert!(matches!(result, Err(TmdbError::Upstream { status: 302 })));
+        server.await.expect("test server should finish");
     }
 
     #[tokio::test]

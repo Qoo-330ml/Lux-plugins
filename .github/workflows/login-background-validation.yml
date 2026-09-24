@@ -51,6 +51,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Test the login background SDK and providers
         run: cargo test --locked --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background --test login_background_contract
+      - name: Test redirect behavior in the shared TMDb client
+        run: cargo test --locked --lib application::tmdb::tests
       - name: Validate login background fixtures
         run: python3 -m unittest discover -s tests -p test_login_background_contract.py
       - name: Lint the providers

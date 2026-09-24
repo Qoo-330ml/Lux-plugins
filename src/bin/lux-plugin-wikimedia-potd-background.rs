@@ -3,12 +3,14 @@ mod tests {
     use std::time::Duration;
 
     use luxd::application::plugin_protocol::{LoginBackgroundContentKind, PluginManifest};
+    use reqwest::Url;
     use serde_json::{Value, json};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::{
-        CommonsBackgroundError, date_for_utc_epoch, filename_from_potd_wikitext,
-        html_to_plain_text, imageinfo_to_login_background, supported_license, valid_utc_date,
+        CommonsBackgroundError, commons_client, date_for_utc_epoch, filename_from_potd_wikitext,
+        html_to_plain_text, imageinfo_to_login_background, request_json, supported_license,
+        valid_utc_date,
     };
 
     #[test]
@@ -241,6 +243,60 @@ mod tests {
         assert!(requests[1].contains("prop=imageinfo"));
         assert!(requests[1].contains("iiurlwidth=1920"));
     }
+
+    #[tokio::test]
+    async fn does_not_follow_action_api_redirects_to_other_hosts() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock API should bind");
+        let address = listener
+            .local_addr()
+            .expect("mock API address should exist");
+        let redirect_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("redirect target should bind");
+        let redirect_address = redirect_listener
+            .local_addr()
+            .expect("redirect target address should exist");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("API request should connect");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let count = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("API request should read");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{redirect_address}/internal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("redirect response should write");
+        });
+        let redirect_probe = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_millis(150), redirect_listener.accept())
+                .await
+                .is_ok()
+        });
+        let client =
+            commons_client(reqwest::Client::builder()).expect("Commons API client should build");
+        let api_url =
+            Url::parse(&format!("http://{address}/w/api.php")).expect("mock URL should be valid");
+
+        assert!(matches!(
+            request_json(&client, api_url).await,
+            Err(CommonsBackgroundError::Upstream)
+        ));
+        server.await.expect("API mock should finish");
+        assert!(!redirect_probe.await.expect("redirect probe should finish"));
+    }
 }
 use std::{
     fmt,
@@ -254,7 +310,7 @@ use luxd::application::plugin_protocol::{
 };
 use luxd::network::client_builder_from_env;
 use quick_xml::{events::Event, reader::Reader};
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{Client, ClientBuilder, StatusCode, Url};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::{
@@ -365,11 +421,9 @@ async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
     if !params.as_object().is_some_and(|values| values.is_empty()) {
         return Err(CommonsBackgroundError::InvalidRequest.into());
     }
-    let client = client_builder_from_env()
-        .map_err(|_| PluginRpcError::from(CommonsBackgroundError::Upstream))?
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent("Lux-Wikimedia-POTD-Plugin/0.1 (+https://github.com/Qoo-330ml/Lux-plugins)")
-        .build()
+    let builder = client_builder_from_env()
+        .map_err(|_| PluginRpcError::from(CommonsBackgroundError::Upstream))?;
+    let client = commons_client(builder)
         .map_err(|_| PluginRpcError::from(CommonsBackgroundError::Upstream))?;
     let date = date_for_utc_epoch(
         SystemTime::now()
@@ -382,6 +436,14 @@ async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
         .map_err(PluginRpcError::from)?;
     serde_json::to_value(result)
         .map_err(|_| PluginRpcError::from(CommonsBackgroundError::InvalidResponse))
+}
+
+fn commons_client(builder: ClientBuilder) -> Result<Client, reqwest::Error> {
+    builder
+        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent("Lux-Wikimedia-POTD-Plugin/0.1 (+https://github.com/Qoo-330ml/Lux-plugins)")
+        .build()
 }
 
 async fn fetch_background_for_date(

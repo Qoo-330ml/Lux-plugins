@@ -162,8 +162,9 @@ async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
     let client = TmdbClient::new(TmdbClientConfig {
         api_key: Some(api_key.to_owned()),
         proxy_url,
+        follow_redirects: false,
         timeout: Duration::from_secs(10),
-        max_retries: 3,
+        max_retries: 0,
         ..TmdbClientConfig::default()
     })
     .map_err(|_| PluginRpcError::from(LoginBackgroundRpcError::ConfigurationInvalid))?;
