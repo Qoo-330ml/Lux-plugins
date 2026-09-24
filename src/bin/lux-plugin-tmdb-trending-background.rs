@@ -357,6 +357,24 @@ mod tests {
     }
 
     #[test]
+    fn tmdb_background_provider_is_registered_in_the_release_catalog() {
+        let catalog: Value =
+            serde_json::from_str(include_str!("../../plugins.json")).expect("catalog should parse");
+        let plugins = catalog.as_array().expect("catalog should be an array");
+        let plugin = plugins
+            .iter()
+            .find(|plugin| plugin["id"] == "org.lux.tmdb-trending-background")
+            .expect("TMDb login background should be in the official release catalog");
+
+        assert_eq!(plugin["binary"], "lux-plugin-tmdb-trending-background");
+        assert_eq!(plugin["version"], "0.1.0");
+        assert_eq!(
+            plugin["manifest"],
+            "manifests/org.lux.tmdb-trending-background.json"
+        );
+    }
+
+    #[test]
     fn configuration_requires_explicit_license_review_but_no_api_key() {
         let unconfigured = super::PluginConfig::default();
         assert!(!unconfigured.is_configured());

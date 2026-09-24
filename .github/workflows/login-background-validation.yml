@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - ".github/workflows/login-background-validation.yml"
+      - "plugins.json"
       - "manifests/org.lux.tmdb-trending-background.json"
       - "src/application/plugin_protocol.rs"
       - "src/application/tmdb.rs"
