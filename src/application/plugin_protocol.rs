@@ -596,6 +596,7 @@ pub enum LoginBackgroundContentKind {
     PosterFeed,
     HeroImage,
     SinglePoster,
+    SingleImage,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -606,6 +607,10 @@ pub struct LoginBackgroundRpcItem {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copyright_notice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -12,7 +12,7 @@
   "category": "UTILITY",
   "capabilities": ["login_background.get"],
   "permissions": {
-    "network": ["api.example.com"],
+    "network": ["api.example.com", "commons.wikimedia.org", "creativecommons.org"],
     "imageHosts": ["images.example.com"],
     "filesystem": []
   },
