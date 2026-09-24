@@ -1,0 +1,85 @@
+name: Validate login background plugin
+
+on:
+  push:
+    paths:
+      - ".github/workflows/login-background-validation.yml"
+      - "manifests/org.lux.tmdb-trending-background.json"
+      - "src/application/plugin_protocol.rs"
+      - "src/application/tmdb.rs"
+      - "src/bin/lux-plugin-tmdb-trending-background.rs"
+      - "tests/fixtures/login-background/tmdb-trending-day-v1.json"
+      - "tests/fixtures/login-background/single-poster-v1.json"
+      - "tests/login_background_contract.rs"
+      - "tests/test_release_workflow.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Build ${{ matrix.arch }} plugin package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out plugin sources
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test the login background SDK and provider
+        run: cargo test --locked --bin lux-plugin-tmdb-trending-background --test login_background_contract
+      - name: Lint the provider
+        run: cargo clippy --locked --bin lux-plugin-tmdb-trending-background --all-features -- -D warnings
+      - name: Build the Linux provider
+        run: cargo build --release --locked --target "${{ matrix.target }}" --bin lux-plugin-tmdb-trending-background
+      - name: Test package tooling
+        run: python3 -m unittest discover -s tests -p test_release_workflow.py
+      - name: Package the provider without publishing it
+        run: |
+          python3 scripts/package_plugin.py \
+            --id org.lux.tmdb-trending-background \
+            --version 0.1.0 \
+            --manifest manifests/org.lux.tmdb-trending-background.json \
+            --binary "target/${{ matrix.target }}/release/lux-plugin-tmdb-trending-background" \
+            --platform linux \
+            --arch "${{ matrix.arch }}" \
+            --output "artifacts/org.lux.tmdb-trending-background-0.1.0-linux-${{ matrix.arch }}.zip"
+      - name: Verify package manifest and checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          package = Path("artifacts/org.lux.tmdb-trending-background-0.1.0-linux-${{ matrix.arch }}.zip")
+          with ZipFile(package) as archive:
+              manifest = json.loads(archive.read("manifest.json"))
+              entrypoint = manifest["runtime"]["entrypoint"]
+              binary = archive.read(entrypoint)
+          assert manifest["id"] == "org.lux.tmdb-trending-background"
+          assert manifest["version"] == "0.1.0"
+          assert manifest["type"] == "login_background"
+          assert manifest["capabilities"] == ["login_background.get"]
+          assert manifest["files"] == [{"path": entrypoint, "sha256": hashlib.sha256(binary).hexdigest()}]
+          print(f"{package}: sha256={hashlib.sha256(package.read_bytes()).hexdigest()}")
+          PY
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-background-${{ matrix.arch }}
+          path: artifacts/*.zip
+          if-no-files-found: error
