@@ -12,6 +12,7 @@ pub const PLUGIN_CATEGORY_MEDIA: &str = "MEDIA";
 pub const PLUGIN_CATEGORY_NETWORK: &str = "NETWORK";
 pub const PLUGIN_CATEGORY_NOTIFICATION: &str = "NOTIFICATION";
 pub const PLUGIN_CATEGORY_MIGRATION: &str = "MIGRATION";
+pub const PLUGIN_CATEGORY_UTILITY: &str = "UTILITY";
 pub const PLUGIN_TYPE_MEDIA_PROBE: &str = "media_probe";
 pub const PLUGIN_TYPE_IP_LOCATION: &str = "ip_location";
 pub const PLUGIN_TYPE_STRM_RESOLVER: &str = "strm_resolver";
@@ -19,6 +20,7 @@ pub const PLUGIN_TYPE_CHAPTER_DETECTOR: &str = "chapter_detector";
 pub const PLUGIN_TYPE_NOTIFICATION: &str = "notification";
 pub const PLUGIN_TYPE_DATA_MIGRATION: &str = "data_migration";
 pub const PLUGIN_TYPE_DANMAKU: &str = "danmaku";
+pub const PLUGIN_TYPE_LOGIN_BACKGROUND: &str = "login_background";
 pub const MEDIA_PROBE_CAPABILITY: &str = "media.probe";
 pub const IP_LOCATION_CAPABILITY: &str = "ip.location";
 pub const STRM_RESOLVE_CAPABILITY: &str = "strm.resolve";
@@ -28,12 +30,14 @@ pub const MEDIA_SOURCE_KIND_LOCAL_FILE: &str = "LOCAL_FILE";
 pub const MEDIA_SOURCE_KIND_STRM_URL: &str = "STRM_URL";
 pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
 pub const DANMAKU_MATCH_CAPABILITY: &str = "danmaku.match";
+pub const LOGIN_BACKGROUND_GET_CAPABILITY: &str = "login_background.get";
 pub const EMBY_MIGRATION_CAPABILITY: &str = "migration.emby";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_METHOD: &str = "notification.send";
 pub const DANMAKU_MATCH_METHOD: &str = "danmaku.match";
+pub const LOGIN_BACKGROUND_GET_METHOD: &str = "login_background.get";
 pub const MIGRATION_TEST_METHOD: &str = "migration.test";
 pub const MIGRATION_LIST_USERS_METHOD: &str = "migration.list_users";
 pub const MIGRATION_LIST_ITEMS_METHOD: &str = "migration.list_items";
@@ -104,8 +108,42 @@ impl PluginManifest {
         validate_text("name", &self.name, 256)?;
         validate_semver(&self.version)?;
         validate_identifier("category", &self.category, 64)?;
+        if self.plugin_type != PLUGIN_TYPE_LOGIN_BACKGROUND {
+            if self
+                .capabilities
+                .iter()
+                .any(|capability| capability == LOGIN_BACKGROUND_GET_CAPABILITY)
+            {
+                return Err(PluginManifestError::Invalid(
+                    "only login_background plugins may declare login_background.get".to_owned(),
+                ));
+            }
+            if !self.permissions.image_hosts.is_empty() {
+                return Err(PluginManifestError::Invalid(
+                    "only login_background plugins may declare imageHosts".to_owned(),
+                ));
+            }
+        }
         match self.plugin_type.as_str() {
             "metadata" => {}
+            PLUGIN_TYPE_LOGIN_BACKGROUND => {
+                if self.category != PLUGIN_CATEGORY_UTILITY {
+                    return Err(PluginManifestError::Invalid(
+                        "login background plugins must use the UTILITY category".to_owned(),
+                    ));
+                }
+                if self.capabilities.as_slice() != [LOGIN_BACKGROUND_GET_CAPABILITY] {
+                    return Err(PluginManifestError::Invalid(
+                        "login background plugins must declare only login_background.get"
+                            .to_owned(),
+                    ));
+                }
+                if self.permissions.image_hosts.is_empty() {
+                    return Err(PluginManifestError::Invalid(
+                        "login background plugins must declare imageHosts".to_owned(),
+                    ));
+                }
+            }
             PLUGIN_TYPE_MEDIA_PROBE => {
                 if self.category != PLUGIN_CATEGORY_MEDIA {
                     return Err(PluginManifestError::Invalid(
@@ -442,13 +480,15 @@ pub struct PluginConfigOption {
 pub struct PluginPermissions {
     #[serde(default)]
     pub network: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_hosts: Vec<String>,
     #[serde(default)]
     pub filesystem: Vec<String>,
 }
 
 impl PluginPermissions {
     fn validate(&self) -> Result<(), PluginManifestError> {
-        if self.network.len() > 32 || self.filesystem.len() > 16 {
+        if self.network.len() > 32 || self.image_hosts.len() > 32 || self.filesystem.len() > 16 {
             return Err(PluginManifestError::Invalid(
                 "manifest declares too many permissions".to_owned(),
             ));
@@ -461,11 +501,47 @@ impl PluginPermissions {
                 )));
             }
         }
+        for host in &self.image_hosts {
+            validate_login_background_image_host(host)?;
+        }
         for path in &self.filesystem {
             validate_identifier("filesystem permission", path, 64)?;
         }
         Ok(())
     }
+}
+
+fn validate_login_background_image_host(host: &str) -> Result<(), PluginManifestError> {
+    let invalid = || PluginManifestError::Invalid("invalid login background image host".to_owned());
+    if host.is_empty()
+        || host.len() > 253
+        || host.trim() != host
+        || !host.is_ascii()
+        || host.contains(['/', '@', ':', '?', '#', '*'])
+        || host.ends_with('.')
+        || host.parse::<std::net::IpAddr>().is_ok()
+    {
+        return Err(invalid());
+    }
+    let labels = host.split('.').collect::<Vec<_>>();
+    if labels.len() < 2
+        || labels.iter().any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || !label.as_bytes()[0].is_ascii_alphanumeric()
+                || !label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        || host.eq_ignore_ascii_case("localhost")
+        || host.to_ascii_lowercase().ends_with(".localhost")
+        || host.to_ascii_lowercase().ends_with(".local")
+        || host.to_ascii_lowercase().ends_with(".internal")
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -512,6 +588,39 @@ impl PluginRequest {
             params,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum LoginBackgroundContentKind {
+    PosterFeed,
+    HeroImage,
+    SinglePoster,
+    SingleImage,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoginBackgroundRpcItem {
+    pub image_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copyright_notice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LoginBackgroundRpcResult {
+    pub content_kind: LoginBackgroundContentKind,
+    pub source_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copyright_notice: Option<String>,
+    pub items: Vec<LoginBackgroundRpcItem>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

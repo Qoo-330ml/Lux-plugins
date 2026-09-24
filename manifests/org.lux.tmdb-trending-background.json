@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.tmdb-trending-background",
+  "name": "TMDb 日榜横幅背景",
+  "description": "从 TMDb 日榜电影与剧集中选取第一张有效横幅图作为登录页背景，仅供非商业用途。请先核对 TMDb API 许可；商业用途需要与 TMDb 签订书面协议。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "login_background",
+  "category": "UTILITY",
+  "capabilities": ["login_background.get"],
+  "configFields": [
+    {
+      "key": "licenseReviewed",
+      "label": "我已核对 TMDb 非商业使用许可",
+      "type": "select",
+      "required": true,
+      "sensitive": false,
+      "description": "该插件复用 Lux 内嵌的 TMDb API fallback key，仅供非商业用途。核对 TMDb API Terms 并确认当前部署符合许可后再选择；此选择不代表 TMDb 授权，商业用途必须事先取得书面协议。",
+      "options": [
+        {"value": "reviewed", "label": "我已核对并确认符合许可"}
+      ]
+    }
+  ],
+  "permissions": {
+    "network": ["api.themoviedb.org"],
+    "imageHosts": ["image.tmdb.org"],
+    "filesystem": []
+  },
+  "files": []
+}
