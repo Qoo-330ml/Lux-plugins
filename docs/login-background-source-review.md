@@ -14,3 +14,15 @@
 结论：可从 MIT 角度复用代码，但不能据此启用或分发必应图片提供者。按照 Lux 的 LUX-262 来源门槛，目前不实现可运行的必应图片插件，也不将其加入插件目录。只有取得适用于第三方应用展示的明确授权，并确认受支持的取数接口后，才重新评估该来源。
 
 此记录是工程来源审查，不构成法律意见。
+
+## TMDb 日榜海报
+
+审查日期：2026-09-24
+
+- 使用 TMDb 官方 [`Trending All` API](https://developer.themoviedb.org/reference/trending-all)，固定请求 `/3/trending/all/day`；将响应视为不可信数据，只接受 `movie`/`tv` 的有效 `poster_path`，按榜单顺序选择首张海报。
+- 图片 URL 按 TMDb 官方[图片文档](https://developer.themoviedb.org/docs/image-basics)格式组成：`https://image.tmdb.org/t/p/w500/{poster_path}`。Lux 直接显示原图，不下载、改写、裁切、旋转或组合海报。
+- 复用 `Lux-plugins/src/application/tmdb.rs` 中本项目已有的 `TmdbClient`，其提供 HTTPS JSON 请求、超时、响应大小上限、限速、重试与代理支持。新插件使用显式 `TmdbClient::new(TmdbClientConfig { api_key, .. })`，不使用元数据插件的 `from_env_or_config`、内置 fallback 凭据、插件配置文件或 RPC 生命周期；其 API Key 仅从自己的 `LUX_PLUGIN_CONFIG_PATH` 读取。
+- TMDb 官方 [API Terms](https://www.themoviedb.org/api-terms-of-use)要求对 TMDb 内容归属署名、禁止对 TMDb 内容制作衍生作品，并规定未获书面商业协议不得商业使用；官方 [FAQ](https://developer.themoviedb.org/docs/faq)要求来源说明位于 About/Credits 区域。Lux 宿主已在“关于与鸣谢”中显示获准 TMDb 标识与非背书声明。
+- 插件配置会要求管理员确认已核对适用许可，但该确认不是授权，也不能确定部署是否商业用途。因此本次不把插件加入 `plugins.json`、`index.json` 或正式发布包；须由项目所有者确认实际用途符合许可，商业用途须先有书面协议后，才开放目录发布/启用。
+
+此记录是工程来源审查，不构成法律意见。
