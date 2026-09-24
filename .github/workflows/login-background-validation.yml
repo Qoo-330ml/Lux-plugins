@@ -2,10 +2,12 @@ name: Validate login background plugin
 
 on:
   push:
+    branches: ["codex/**"]
     paths:
       - ".github/workflows/login-background-validation.yml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "plugins.json"
       - "manifests/org.lux.tmdb-trending-background.json"
       - "manifests/org.lux.wikimedia-potd-background.json"
       - "scripts/package_plugin.py"

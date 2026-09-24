@@ -10,6 +10,21 @@ IMAGE_TYPES = {"SINGLE_POSTER", "SINGLE_IMAGE", "HERO_IMAGE"}
 
 
 class LoginBackgroundContractTests(unittest.TestCase):
+    def test_only_the_license_filtered_commons_provider_is_registered_for_release(self):
+        plugins = json.loads((ROOT / "plugins.json").read_text())
+        plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
+
+        self.assertEqual(
+            plugins_by_id["org.lux.wikimedia-potd-background"],
+            {
+                "id": "org.lux.wikimedia-potd-background",
+                "binary": "lux-plugin-wikimedia-potd-background",
+                "version": "0.1.0",
+                "manifest": "manifests/org.lux.wikimedia-potd-background.json",
+            },
+        )
+        self.assertNotIn("org.lux.tmdb-trending-background", plugins_by_id)
+
     def test_provider_fixtures_match_manifest_hosts_and_bounded_response_contract(self):
         manifest = json.loads((FIXTURES / "manifest-v1.json").read_text())
         image_hosts = {host.lower() for host in manifest["permissions"]["imageHosts"]}
