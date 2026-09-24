@@ -42,7 +42,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out plugin sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -100,7 +100,7 @@ jobs:
               print(f"{package}: sha256={hashlib.sha256(package.read_bytes()).hexdigest()}")
           PY
       - name: Upload validation artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: login-background-providers-${{ matrix.arch }}
           path: artifacts/*.zip
