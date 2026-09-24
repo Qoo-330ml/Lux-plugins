@@ -694,6 +694,9 @@ fn safe_image_url(value: &str) -> Option<String> {
         || url.port().is_some()
         || url.fragment().is_some()
         || !url.path().starts_with("/wikipedia/commons/thumb/")
+        || ![".jpg", ".jpeg", ".png", ".webp"]
+            .iter()
+            .any(|extension| url.path().to_ascii_lowercase().ends_with(extension))
     {
         return None;
     }
@@ -754,10 +757,7 @@ fn imageinfo_to_login_background(
         .first()
         .and_then(|page| page.imageinfo.first())
         .ok_or(CommonsBackgroundError::InvalidResponse)?;
-    if !matches!(
-        image_info.mime.as_str(),
-        "image/jpeg" | "image/png" | "image/webp" | "image/svg+xml"
-    ) {
+    if !image_info.mime.starts_with("image/") {
         return Err(CommonsBackgroundError::InvalidResponse);
     }
     let image_url = safe_image_url(
