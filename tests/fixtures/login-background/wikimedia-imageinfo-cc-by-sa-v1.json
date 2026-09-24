@@ -1,0 +1,25 @@
+{
+  "query": {
+    "pages": [
+      {
+        "pageid": 101,
+        "ns": 6,
+        "title": "File:Violet-backed starling (Cinnyricinclus leucogaster verreauxi) female.jpg",
+        "imageinfo": [
+          {
+            "url": "https://upload.wikimedia.org/wikipedia/commons/c/c6/Violet-backed_starling_%28Cinnyricinclus_leucogaster_verreauxi%29_female.jpg",
+            "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c6/Violet-backed_starling_%28Cinnyricinclus_leucogaster_verreauxi%29_female.jpg/1920px-Violet-backed_starling_%28Cinnyricinclus_leucogaster_verreauxi%29_female.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Violet-backed_starling_(Cinnyricinclus_leucogaster_verreauxi)_female.jpg",
+            "mime": "image/jpeg",
+            "extmetadata": {
+              "LicenseShortName": {"value": "CC BY-SA 4.0"},
+              "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+              "Artist": {"value": "<bdi><a href=\"https://www.wikidata.org/wiki/Q54800218\">Charles J. Sharp</a></bdi>"},
+              "ImageDescription": {"value": "<div>Violet-backed starling (<i>Cinnyricinclus leucogaster verreauxi</i>) female</div>"}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
