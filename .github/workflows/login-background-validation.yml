@@ -68,12 +68,12 @@ jobs:
             --output "artifacts/org.lux.tmdb-trending-background-0.1.0-linux-${{ matrix.arch }}.zip"
           python3 scripts/package_plugin.py \
             --id org.lux.wikimedia-potd-background \
-            --version 0.1.0 \
+            --version 0.1.1 \
             --manifest manifests/org.lux.wikimedia-potd-background.json \
             --binary "target/${{ matrix.target }}/release/lux-plugin-wikimedia-potd-background" \
             --platform linux \
             --arch "${{ matrix.arch }}" \
-            --output "artifacts/org.lux.wikimedia-potd-background-0.1.0-linux-${{ matrix.arch }}.zip"
+            --output "artifacts/org.lux.wikimedia-potd-background-0.1.1-linux-${{ matrix.arch }}.zip"
       - name: Verify package manifest and checksums
         run: |
           python3 - <<'PY'
@@ -82,17 +82,17 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile
 
-          for plugin_id in (
-              "org.lux.tmdb-trending-background",
-              "org.lux.wikimedia-potd-background",
+          for plugin_id, version in (
+              ("org.lux.tmdb-trending-background", "0.1.0"),
+              ("org.lux.wikimedia-potd-background", "0.1.1"),
           ):
-              package = Path(f"artifacts/{plugin_id}-0.1.0-linux-${{ matrix.arch }}.zip")
+              package = Path(f"artifacts/{plugin_id}-{version}-linux-${{ matrix.arch }}.zip")
               with ZipFile(package) as archive:
                   manifest = json.loads(archive.read("manifest.json"))
                   entrypoint = manifest["runtime"]["entrypoint"]
                   binary = archive.read(entrypoint)
               assert manifest["id"] == plugin_id
-              assert manifest["version"] == "0.1.0"
+              assert manifest["version"] == version
               assert manifest["type"] == "login_background"
               assert manifest["capabilities"] == ["login_background.get"]
               assert manifest["files"] == [{"path": entrypoint, "sha256": hashlib.sha256(binary).hexdigest()}]

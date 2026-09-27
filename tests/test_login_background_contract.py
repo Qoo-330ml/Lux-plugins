@@ -18,7 +18,7 @@ class LoginBackgroundContractTests(unittest.TestCase):
             "org.lux.wikimedia-potd-background": {
                 "id": "org.lux.wikimedia-potd-background",
                 "binary": "lux-plugin-wikimedia-potd-background",
-                "version": "0.1.0",
+                "version": "0.1.1",
                 "manifest": "manifests/org.lux.wikimedia-potd-background.json",
             },
             "org.lux.tmdb-trending-background": {
