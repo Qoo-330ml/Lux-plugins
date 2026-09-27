@@ -40,6 +40,16 @@ mod tests {
     }
 
     #[test]
+    fn ignores_trailing_html_comments_in_the_potd_filename_parameter() {
+        let wikitext = "{{Potd filename|1= Gladiolus dalenii flower Ooty Jul25 A7CR 06187-224 zsp.jpg\n<!--DON'T EDIT BELOW THIS LINE. IT FILLS OUT THE REST FOR YOU.\n-->|2=2026|3=09|4=27}}";
+
+        assert_eq!(
+            filename_from_potd_wikitext(wikitext).as_deref(),
+            Some("Gladiolus dalenii flower Ooty Jul25 A7CR 06187-224 zsp.jpg")
+        );
+    }
+
+    #[test]
     fn converts_commons_artist_and_description_markup_to_plain_text() {
         assert_eq!(
             html_to_plain_text("<bdi><a href=\"https://example.test\">Charles J. Sharp</a></bdi>"),
@@ -169,7 +179,7 @@ mod tests {
             "../../manifests/org.lux.wikimedia-potd-background.json"
         ))
         .expect("Commons manifest should be valid JSON");
-        manifest_value["version"] = json!("0.1.0");
+        manifest_value["version"] = json!("0.1.1");
         let manifest = PluginManifest::from_value(manifest_value)
             .expect("Commons manifest should satisfy the SDK");
 
@@ -593,7 +603,12 @@ fn is_leap_year(year: i32) -> bool {
 
 fn filename_from_potd_wikitext(wikitext: &str) -> Option<String> {
     let after_parameter = wikitext.split_once("{{Potd filename|1=")?.1;
-    let filename = after_parameter.split('|').next()?.trim();
+    let filename = after_parameter
+        .split('|')
+        .next()?
+        .split("<!--")
+        .next()?
+        .trim();
     if filename.is_empty()
         || filename.len() > 255
         || filename.contains(['{', '}', '\n', '\r', '\u{0}'])
