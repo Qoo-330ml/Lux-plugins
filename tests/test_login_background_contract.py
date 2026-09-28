@@ -49,7 +49,7 @@ class LoginBackgroundContractTests(unittest.TestCase):
             "org.lux.tmdb-trending-background": {
                 "id": "org.lux.tmdb-trending-background",
                 "binary": "lux-plugin-tmdb-trending-background",
-                "version": "0.1.0",
+                "version": "0.1.1",
                 "manifest": "manifests/org.lux.tmdb-trending-background.json",
             },
         }

@@ -70,12 +70,12 @@ jobs:
             --output "artifacts/org.lux.bing-daily-background-0.1.0-linux-${{ matrix.arch }}.zip"
           python3 scripts/package_plugin.py \
             --id org.lux.tmdb-trending-background \
-            --version 0.1.0 \
+            --version 0.1.1 \
             --manifest manifests/org.lux.tmdb-trending-background.json \
             --binary "target/${{ matrix.target }}/release/lux-plugin-tmdb-trending-background" \
             --platform linux \
             --arch "${{ matrix.arch }}" \
-            --output "artifacts/org.lux.tmdb-trending-background-0.1.0-linux-${{ matrix.arch }}.zip"
+            --output "artifacts/org.lux.tmdb-trending-background-0.1.1-linux-${{ matrix.arch }}.zip"
           python3 scripts/package_plugin.py \
             --id org.lux.wikimedia-potd-background \
             --version 0.1.1 \
@@ -94,7 +94,7 @@ jobs:
 
           for plugin_id, version in (
               ("org.lux.bing-daily-background", "0.1.0"),
-              ("org.lux.tmdb-trending-background", "0.1.0"),
+              ("org.lux.tmdb-trending-background", "0.1.1"),
               ("org.lux.wikimedia-potd-background", "0.1.1"),
           ):
               package = Path(f"artifacts/{plugin_id}-{version}-linux-${{ matrix.arch }}.zip")
