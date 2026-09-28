@@ -35,17 +35,11 @@ class LoginBackgroundContractTests(unittest.TestCase):
             ["personalUseConfirmed"],
         )
 
-    def test_independent_commons_and_tmdb_providers_are_registered_for_release(self):
+    def test_tmdb_trending_background_is_registered_for_release(self):
         plugins = json.loads((ROOT / "plugins.json").read_text())
         plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
 
         expected = {
-            "org.lux.wikimedia-potd-background": {
-                "id": "org.lux.wikimedia-potd-background",
-                "binary": "lux-plugin-wikimedia-potd-background",
-                "version": "0.1.1",
-                "manifest": "manifests/org.lux.wikimedia-potd-background.json",
-            },
             "org.lux.tmdb-trending-background": {
                 "id": "org.lux.tmdb-trending-background",
                 "binary": "lux-plugin-tmdb-trending-background",
@@ -68,6 +62,20 @@ class LoginBackgroundContractTests(unittest.TestCase):
             [field["key"] for field in tmdb_manifest["configFields"]],
             ["licenseReviewed"],
         )
+
+    def test_wikimedia_provider_is_removed_from_the_active_store(self):
+        plugin_id = "org.lux.wikimedia-potd-background"
+        plugins = json.loads((ROOT / "plugins.json").read_text())
+        catalog = json.loads((ROOT / "index.json").read_text())
+
+        self.assertNotIn(plugin_id, {plugin["id"] for plugin in plugins})
+        self.assertNotIn(plugin_id, {plugin["id"] for plugin in catalog["plugins"]})
+        self.assertFalse((ROOT / "manifests/org.lux.wikimedia-potd-background.json").exists())
+        self.assertFalse((ROOT / "src/bin/lux-plugin-wikimedia-potd-background.rs").exists())
+
+        workflow = (ROOT / ".github/workflows/login-background-validation.yml").read_text()
+        self.assertNotIn(plugin_id, workflow)
+        self.assertNotIn("lux-plugin-wikimedia-potd-background", workflow)
 
     def test_provider_fixtures_match_manifest_hosts_and_bounded_response_contract(self):
         manifest = json.loads((FIXTURES / "manifest-v1.json").read_text())
