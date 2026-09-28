@@ -342,33 +342,6 @@
           "sha256": "ecf67df0b2756b5f90cb77a4eac0ecaf4e42042375fe5f7205e0aeda0a79e4a9"
         }
       ]
-    },
-    {
-      "id": "org.lux.wikimedia-potd-background",
-      "name": "Wikimedia Commons 每日图片",
-      "description": "使用 Wikimedia Commons 每日精选图片；逐项检查授权并显示作者、作品页和许可证链接。",
-      "category": "UTILITY",
-      "version": "0.1.1",
-      "runtime": "process",
-      "providerKey": null,
-      "aliases": [],
-      "capabilities": [
-        "login_background.get"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.wikimedia-potd-background/org.lux.wikimedia-potd-background-0.1.1-linux-aarch64.zip",
-          "sha256": "82f2ce006389f69169cf39de9ddd87c54f348f3020520b9cb93432d71db4013e"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.wikimedia-potd-background/org.lux.wikimedia-potd-background-0.1.1-linux-x86_64.zip",
-          "sha256": "797b6e865b1b58930e61b4da74233edafeee47c4622c2bf107b12dcff09f061d"
-        }
-      ]
     }
   ]
 }
