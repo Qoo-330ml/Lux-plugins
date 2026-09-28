@@ -10,6 +10,31 @@ IMAGE_TYPES = {"SINGLE_POSTER", "SINGLE_IMAGE", "HERO_IMAGE"}
 
 
 class LoginBackgroundContractTests(unittest.TestCase):
+    def test_bing_daily_background_is_registered_as_a_separate_hero_provider(self):
+        plugins = json.loads((ROOT / "plugins.json").read_text())
+        plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
+        entry = plugins_by_id["org.lux.bing-daily-background"]
+
+        self.assertEqual(
+            entry,
+            {
+                "id": "org.lux.bing-daily-background",
+                "binary": "lux-plugin-bing-daily-background",
+                "version": "0.1.0",
+                "manifest": "manifests/org.lux.bing-daily-background.json",
+            },
+        )
+        manifest = json.loads((ROOT / entry["manifest"]).read_text())
+        self.assertEqual(manifest["id"], entry["id"])
+        self.assertEqual(manifest["type"], "login_background")
+        self.assertEqual(manifest["capabilities"], ["login_background.get"])
+        self.assertEqual(manifest["permissions"]["network"], ["www.bing.com"])
+        self.assertEqual(manifest["permissions"]["imageHosts"], ["www.bing.com"])
+        self.assertEqual(
+            [field["key"] for field in manifest["configFields"]],
+            ["personalUseConfirmed"],
+        )
+
     def test_independent_commons_and_tmdb_providers_are_registered_for_release(self):
         plugins = json.loads((ROOT / "plugins.json").read_text())
         plugins_by_id = {plugin["id"]: plugin for plugin in plugins}

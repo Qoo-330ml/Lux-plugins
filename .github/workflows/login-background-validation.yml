@@ -5,10 +5,12 @@ on:
     paths:
       - ".github/workflows/login-background-validation.yml"
       - "plugins.json"
+      - "manifests/org.lux.bing-daily-background.json"
       - "manifests/org.lux.tmdb-trending-background.json"
       - "manifests/org.lux.wikimedia-potd-background.json"
       - "src/application/plugin_protocol.rs"
       - "src/application/tmdb.rs"
+      - "src/bin/lux-plugin-bing-daily-background.rs"
       - "src/bin/lux-plugin-tmdb-trending-background.rs"
       - "src/bin/lux-plugin-wikimedia-potd-background.rs"
       - "tests/fixtures/login-background/tmdb-trending-day-v1.json"
@@ -47,17 +49,25 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test the login background SDK and provider
-        run: cargo test --locked --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background --test login_background_contract
+        run: cargo test --locked --bin lux-plugin-bing-daily-background --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background --test login_background_contract
       - name: Test redirect behavior in the shared TMDb client
         run: cargo test --locked --lib application::tmdb::tests
       - name: Validate login background fixtures and catalog
         run: python3 -m unittest discover -s tests -p test_login_background_contract.py
       - name: Lint the providers
-        run: cargo clippy --locked --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background --all-features -- -D warnings
+        run: cargo clippy --locked --bin lux-plugin-bing-daily-background --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background --all-features -- -D warnings
       - name: Build the Linux providers
-        run: cargo build --release --locked --target "${{ matrix.target }}" --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background
+        run: cargo build --release --locked --target "${{ matrix.target }}" --bin lux-plugin-bing-daily-background --bin lux-plugin-tmdb-trending-background --bin lux-plugin-wikimedia-potd-background
       - name: Package the providers without publishing them
         run: |
+          python3 scripts/package_plugin.py \
+            --id org.lux.bing-daily-background \
+            --version 0.1.0 \
+            --manifest manifests/org.lux.bing-daily-background.json \
+            --binary "target/${{ matrix.target }}/release/lux-plugin-bing-daily-background" \
+            --platform linux \
+            --arch "${{ matrix.arch }}" \
+            --output "artifacts/org.lux.bing-daily-background-0.1.0-linux-${{ matrix.arch }}.zip"
           python3 scripts/package_plugin.py \
             --id org.lux.tmdb-trending-background \
             --version 0.1.0 \
@@ -83,6 +93,7 @@ jobs:
           from zipfile import ZipFile
 
           for plugin_id, version in (
+              ("org.lux.bing-daily-background", "0.1.0"),
               ("org.lux.tmdb-trending-background", "0.1.0"),
               ("org.lux.wikimedia-potd-background", "0.1.1"),
           ):

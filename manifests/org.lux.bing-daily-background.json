@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.bing-daily-background",
+  "name": "Bing 每日图片",
+  "description": "将 Bing 每日 1920×1080 大图铺满登录页左侧。该端点不是微软承诺的公共 API；图片许可可能因作品而异，仅在管理员确认适用的个人用途许可后启用。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "login_background",
+  "category": "UTILITY",
+  "capabilities": ["login_background.get"],
+  "configFields": [
+    {
+      "key": "personalUseConfirmed",
+      "label": "必应图片用途确认",
+      "type": "select",
+      "required": true,
+      "sensitive": false,
+      "description": "上游项目将图片用途描述为个人壁纸，微软也提示每日图片可能受单图许可限制。请先核对当前部署与图片的适用许可；此确认不是版权授权。插件仅返回必应直链，不下载或分发图片文件。",
+      "options": [
+        {"value": "confirmed", "label": "我已核对许可并确认仅作个人用途"}
+      ]
+    }
+  ],
+  "permissions": {
+    "network": ["www.bing.com"],
+    "imageHosts": ["www.bing.com"],
+    "filesystem": []
+  },
+  "files": []
+}
