@@ -216,7 +216,7 @@ fn login_background_result(
             continue;
         };
         return Ok(LoginBackgroundRpcResult {
-            content_kind: LoginBackgroundContentKind::SingleImage,
+            content_kind: LoginBackgroundContentKind::HeroImage,
             source_name: "TMDb 日榜横幅".to_owned(),
             copyright_notice: None,
             items: vec![LoginBackgroundRpcItem {
@@ -279,7 +279,7 @@ mod tests {
 
         let result = login_background_result(&payload).expect("fixture should contain a backdrop");
 
-        assert_eq!(result.content_kind, LoginBackgroundContentKind::SingleImage);
+        assert_eq!(result.content_kind, LoginBackgroundContentKind::HeroImage);
         assert_eq!(result.items.len(), 1);
         assert_eq!(
             result.items[0].image_url,
@@ -334,7 +334,7 @@ mod tests {
             "../../manifests/org.lux.tmdb-trending-background.json"
         ))
         .expect("TMDb background manifest should be valid JSON");
-        manifest_value["version"] = json!("0.1.0");
+        manifest_value["version"] = json!("0.1.1");
         let manifest = PluginManifest::from_value(manifest_value)
             .expect("TMDb background manifest should satisfy the SDK");
 
@@ -367,7 +367,7 @@ mod tests {
             .expect("TMDb login background should be in the official release catalog");
 
         assert_eq!(plugin["binary"], "lux-plugin-tmdb-trending-background");
-        assert_eq!(plugin["version"], "0.1.0");
+        assert_eq!(plugin["version"], "0.1.1");
         assert_eq!(
             plugin["manifest"],
             "manifests/org.lux.tmdb-trending-background.json"
