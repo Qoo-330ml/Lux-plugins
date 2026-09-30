@@ -10,58 +10,43 @@ IMAGE_TYPES = {"SINGLE_POSTER", "SINGLE_IMAGE", "HERO_IMAGE"}
 
 
 class LoginBackgroundContractTests(unittest.TestCase):
-    def test_bing_daily_background_is_registered_as_a_separate_hero_provider(self):
+    def test_unified_background_replaces_the_two_active_background_entries(self):
         plugins = json.loads((ROOT / "plugins.json").read_text())
         plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
-        entry = plugins_by_id["org.lux.bing-daily-background"]
+        self.assertNotIn("org.lux.bing-daily-background", plugins_by_id)
+        self.assertNotIn("org.lux.tmdb-trending-background", plugins_by_id)
 
-        self.assertEqual(
-            entry,
-            {
-                "id": "org.lux.bing-daily-background",
-                "binary": "lux-plugin-bing-daily-background",
-                "version": "0.1.0",
-                "manifest": "manifests/org.lux.bing-daily-background.json",
-            },
-        )
+        entry = plugins_by_id["org.lux.login-background"]
+        self.assertEqual(entry["binary"], "lux-plugin-login-background")
+        self.assertEqual(entry["version"], "0.1.0")
+        self.assertEqual(entry["manifest"], "manifests/org.lux.login-background.json")
         manifest = json.loads((ROOT / entry["manifest"]).read_text())
-        self.assertEqual(manifest["id"], entry["id"])
+        self.assertEqual(manifest["id"], "org.lux.login-background")
         self.assertEqual(manifest["type"], "login_background")
         self.assertEqual(manifest["capabilities"], ["login_background.get"])
-        self.assertEqual(manifest["permissions"]["network"], ["www.bing.com"])
-        self.assertEqual(manifest["permissions"]["imageHosts"], ["www.bing.com"])
+        fields = {field["key"]: field for field in manifest["configFields"]}
         self.assertEqual(
-            [field["key"] for field in manifest["configFields"]],
-            ["personalUseConfirmed"],
+            [option["value"] for option in fields["source"]["options"]],
+            ["BING_DAILY", "TMDB_TRENDING", "CUSTOM_IMAGE"],
         )
+        for key in ("bingPersonalUseConfirmed", "tmdbLicenseConfirmed", "customImageRightsConfirmed"):
+            self.assertEqual(fields[key]["type"], "toggle")
+            self.assertFalse(fields[key]["defaultValue"])
+        self.assertEqual(fields["customImage"]["type"], "image")
+        self.assertEqual(manifest["permissions"]["filesystem"], [])
 
-    def test_tmdb_trending_background_is_registered_for_release(self):
-        plugins = json.loads((ROOT / "plugins.json").read_text())
-        plugins_by_id = {plugin["id"]: plugin for plugin in plugins}
+        for old_id, old_binary in (
+            ("org.lux.bing-daily-background", "lux-plugin-bing-daily-background"),
+            ("org.lux.tmdb-trending-background", "lux-plugin-tmdb-trending-background"),
+        ):
+            self.assertFalse((ROOT / f"manifests/{old_id}.json").exists())
+            self.assertFalse((ROOT / f"src/bin/{old_binary}.rs").exists())
 
-        expected = {
-            "org.lux.tmdb-trending-background": {
-                "id": "org.lux.tmdb-trending-background",
-                "binary": "lux-plugin-tmdb-trending-background",
-                "version": "0.1.1",
-                "manifest": "manifests/org.lux.tmdb-trending-background.json",
-            },
-        }
-        for plugin_id, entry in expected.items():
-            with self.subTest(plugin=plugin_id):
-                self.assertEqual(plugins_by_id[plugin_id], entry)
-                manifest = json.loads((ROOT / entry["manifest"]).read_text())
-                self.assertEqual(manifest["id"], plugin_id)
-                self.assertEqual(manifest["type"], "login_background")
-                self.assertEqual(manifest["capabilities"], ["login_background.get"])
-
-        tmdb_manifest = json.loads(
-            (ROOT / expected["org.lux.tmdb-trending-background"]["manifest"]).read_text()
-        )
-        self.assertEqual(
-            [field["key"] for field in tmdb_manifest["configFields"]],
-            ["licenseReviewed"],
-        )
+    def test_unified_migration_guide_requires_fresh_provider_consent(self):
+        guide = (ROOT / "docs/login-background-migration.md").read_text()
+        self.assertIn("org.lux.login-background", guide)
+        self.assertIn("重新逐项确认", guide)
+        self.assertIn("不会迁移", guide)
 
     def test_wikimedia_provider_is_removed_from_the_active_store(self):
         plugin_id = "org.lux.wikimedia-potd-background"

@@ -40,3 +40,23 @@ fn unified_manifest_keeps_provider_consents_separate_and_image_host_managed() {
     assert_eq!(image_field.input_type, "image");
     assert!(!image_field.required);
 }
+
+#[test]
+fn official_catalog_contains_only_the_unified_background_provider() {
+    let catalog: serde_json::Value =
+        serde_json::from_str(include_str!("../plugins.json")).expect("catalog should parse");
+    let plugins = catalog.as_array().expect("catalog should be an array");
+    let background_ids = plugins
+        .iter()
+        .filter_map(|plugin| plugin.get("id").and_then(serde_json::Value::as_str))
+        .filter(|plugin_id| plugin_id.contains("background"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(background_ids, ["org.lux.login-background"]);
+    let entry = plugins
+        .iter()
+        .find(|plugin| plugin["id"] == "org.lux.login-background")
+        .expect("unified provider should be registered");
+    assert_eq!(entry["binary"], "lux-plugin-login-background");
+    assert_eq!(entry["manifest"], "manifests/org.lux.login-background.json");
+}
