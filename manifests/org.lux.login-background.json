@@ -1,0 +1,69 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.login-background",
+  "name": "统一登录背景",
+  "description": "在必应每日图片、TMDb 日榜横幅与单张自定义图片之间选择 Lux 登录页背景。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {"kind": "process", "entrypoint": "__ENTRYPOINT__"},
+  "type": "login_background",
+  "category": "UTILITY",
+  "capabilities": ["login_background.get"],
+  "configFields": [
+    {
+      "key": "source",
+      "label": "登录背景来源",
+      "type": "select",
+      "required": true,
+      "sensitive": false,
+      "defaultValue": "BING_DAILY",
+      "description": "每次只请求或展示当前所选的这一种来源。",
+      "options": [
+        {"value": "BING_DAILY", "label": "必应每日图片"},
+        {"value": "TMDB_TRENDING", "label": "TMDb 日榜电影与剧集横幅"},
+        {"value": "CUSTOM_IMAGE", "label": "自定义上传图片"}
+      ]
+    },
+    {
+      "key": "bingPersonalUseConfirmed",
+      "label": "我已确认必应图片用于个人用途",
+      "type": "toggle",
+      "required": false,
+      "sensitive": false,
+      "defaultValue": false,
+      "description": "仅选择必应来源时需要确认；图片由登录浏览器直接从 Bing 加载。"
+    },
+    {
+      "key": "tmdbLicenseConfirmed",
+      "label": "我已核对 TMDb 非商业使用许可",
+      "type": "toggle",
+      "required": false,
+      "sensitive": false,
+      "defaultValue": false,
+      "description": "TMDb 日榜仅限符合其 API 条款的非商业用途；此确认不代表 TMDb 背书或授权。"
+    },
+    {
+      "key": "customImageRightsConfirmed",
+      "label": "我拥有该图片用于登录页公开展示的权利",
+      "type": "toggle",
+      "required": false,
+      "sensitive": false,
+      "defaultValue": false,
+      "description": "登录背景图片无需登录即可读取；请仅上传有权公开展示的图片。"
+    },
+    {
+      "key": "customImage",
+      "label": "自定义背景图片",
+      "type": "image",
+      "required": false,
+      "sensitive": false,
+      "description": "单张 JPEG、PNG 或 WebP，最大 5 MiB / 20 MP；上传新图会立即替换旧图。"
+    }
+  ],
+  "permissions": {
+    "network": ["www.bing.com", "api.themoviedb.org"],
+    "imageHosts": ["www.bing.com", "image.tmdb.org"],
+    "filesystem": []
+  },
+  "files": []
+}

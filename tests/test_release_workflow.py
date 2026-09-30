@@ -181,7 +181,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertEqual(commands[0], ["release", "view", "--repo", "Qoo-330ml/Lux-plugins", "org.lux.alpha"])
             self.assertEqual(commands[1][0:4], ["release", "upload", "--repo", "Qoo-330ml/Lux-plugins"])
             self.assertEqual(commands[1][4], "org.lux.alpha")
-            self.assertIn("--clobber", commands[1])
+            self.assertNotIn("--clobber", commands[1])
             self.assertIn("org.lux.alpha-2.0.0-linux-x86_64.zip", package_names(commands[1]))
             self.assertIn("org.lux.alpha-2.0.0-linux-aarch64.zip", package_names(commands[1]))
 

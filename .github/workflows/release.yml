@@ -11,14 +11,73 @@ on:
       - "plugins.json"
       - "scripts/**"
       - ".github/workflows/release.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "manifests/**"
+      - "plugins.json"
+      - "scripts/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Compare this revision's plugins.json to select versions to publish (defaults to the previous commit)
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: plugin-release-main
+  cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Select plugin versions to publish
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      plugin_ids: ${{ steps.plan.outputs.plugin_ids }}
+      removed_plugin_ids: ${{ steps.plan.outputs.removed_plugin_ids }}
+      has_work: ${{ steps.plan.outputs.has_work }}
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare plugin IDs and versions
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          INPUT_BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            base_ref="${INPUT_BASE_REF:-${HEAD_SHA}^}"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            base_ref="$PR_BASE_SHA"
+          else
+            base_ref="$EVENT_BEFORE"
+          fi
+          python3 scripts/release_plan.py \
+            --base-ref "$base_ref" \
+            --output "$RUNNER_TEMP/release-plan.json"
+          echo "plugin_ids=$(jq -c '.releasePluginIds' "$RUNNER_TEMP/release-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "removed_plugin_ids=$(jq -c '.removedPluginIds' "$RUNNER_TEMP/release-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "has_work=$(jq -r '.hasWork' "$RUNNER_TEMP/release-plan.json")" >> "$GITHUB_OUTPUT"
+      - name: Test version selection, index merge, deterministic packages, and immutable assets
+        run: python3 -m unittest discover -s tests -p 'test_release_pipeline_policy.py'
+
   build:
-    name: Build ${{ matrix.arch }} packages
+    name: Build ${{ matrix.arch }} plugin packages
+    needs: plan
+    if: needs.plan.outputs.plugin_ids != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -39,13 +98,16 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Build plugin processes
         run: cargo build --release --locked --target "${{ matrix.target }}" --bins
-      - name: Package plugins
+      - name: Package only added or version-changed plugins
+        env:
+          RELEASE_PLUGIN_IDS: ${{ needs.plan.outputs.plugin_ids }}
         run: |
           python3 scripts/build-packages.py \
             --target "${{ matrix.target }}" \
             --arch "${{ matrix.arch }}" \
+            --plugin-ids-json "$RELEASE_PLUGIN_IDS" \
             --output dist
-      - name: Upload packages
+      - name: Upload selected plugin packages
         uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.arch }}
@@ -53,41 +115,61 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish per-plugin releases and catalog
-    needs: build
+    name: Publish changed packages and update catalog
+    needs: [plan, build]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.has_work == 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Prepare package directory
+        run: mkdir -p artifacts
       - name: Download x86_64 packages
+        if: needs.plan.outputs.plugin_ids != '[]'
         uses: actions/download-artifact@v4
         with:
           name: packages-x86_64
           path: artifacts/x86_64
       - name: Download aarch64 packages
+        if: needs.plan.outputs.plugin_ids != '[]'
         uses: actions/download-artifact@v4
         with:
           name: packages-aarch64
           path: artifacts/aarch64
-      - name: Publish one release per plugin
+      - name: Publish new versioned assets without replacing existing files
+        if: needs.plan.outputs.plugin_ids != '[]'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TARGET: ${{ github.sha }}
         run: |
           python3 scripts/publish-releases.py \
             --artifacts artifacts \
-            --repository "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA"
-      - name: Generate release-backed catalog
+            --repository "$RELEASE_REPOSITORY" \
+            --target "$RELEASE_TARGET" \
+            --existing-index index.json
+      - name: Merge changed packages into the existing catalog
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          REMOVED_PLUGIN_IDS: ${{ needs.plan.outputs.removed_plugin_ids }}
         run: |
           python3 scripts/generate-index.py \
             --artifacts artifacts \
-            --repository "$GITHUB_REPOSITORY" \
+            --repository "$RELEASE_REPOSITORY" \
+            --existing index.json \
+            --remove-plugin-ids-json "$REMOVED_PLUGIN_IDS" \
             --output index.json
       - name: Commit catalog
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

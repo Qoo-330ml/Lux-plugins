@@ -29,7 +29,13 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     with ZipFile(args.output, "w", compression=ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        manifest_entry = ZipInfo("manifest.json", date_time=(1980, 1, 1, 0, 0, 0))
+        manifest_entry.compress_type = ZIP_DEFLATED
+        manifest_entry.external_attr = 0o644 << 16
+        archive.writestr(
+            manifest_entry,
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        )
         entry = ZipInfo(relative_binary)
         entry.compress_type = ZIP_DEFLATED
         entry.external_attr = 0o755 << 16

@@ -3,13 +3,16 @@
 This repository is the default plugin store for [Lux](https://github.com/Qoo-330ml/Lux).
 
 This repository contains the plugin source code. A push to `main` starts
-`.github/workflows/release.yml`, which builds both `linux-x86_64` and `linux-aarch64` packages on
-matching GitHub-hosted runners, publishes them as Release assets, and updates `index.json` with
-the Release URLs and SHA-256 digests. Each plugin owns a stable Release whose tag is its plugin
-ID. Re-running the workflow uploads the current packages to that plugin's existing Release; a
-changed plugin version is added as a new versioned asset in the same Release, while retrying the
-same version replaces the same asset. Lux validates the ZIP and its manifest before installing it
-into `/config/plugins`.
+`.github/workflows/release.yml`, which compares `plugins.json` with the previous revision and only
+packages and publishes plugins that were added or whose version changed. Bump a plugin's catalog
+version when its source or manifest should be published; source-only merges leave existing Releases
+and `index.json` untouched. The workflow builds on both `linux-x86_64` and `linux-aarch64` matching
+GitHub-hosted runners and merges changed plugin entries into `index.json`, preserving unchanged
+entries. Each plugin owns a stable Release whose tag is its plugin ID; versioned assets are
+append-only. Re-running a release with identical indexed package bytes is a no-op, while different
+bytes for an already-published asset fail and require a version bump instead of overwriting it.
+Removing a plugin ID drops it from the active catalog but does not delete its historical Release or
+assets. Lux validates the ZIP and its manifest before installing it into `/config/plugins`.
 
 The package asset name includes the plugin version and target architecture, for example
 `org.lux.tmdb-0.1.12-linux-x86_64.zip` and `org.lux.tmdb-0.1.12-linux-aarch64.zip`. The Lux host
