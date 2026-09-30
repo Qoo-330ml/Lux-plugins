@@ -18,7 +18,7 @@ class LoginBackgroundContractTests(unittest.TestCase):
 
         entry = plugins_by_id["org.lux.login-background"]
         self.assertEqual(entry["binary"], "lux-plugin-login-background")
-        self.assertEqual(entry["version"], "0.1.0")
+        self.assertEqual(entry["version"], "0.1.1")
         self.assertEqual(entry["manifest"], "manifests/org.lux.login-background.json")
         manifest = json.loads((ROOT / entry["manifest"]).read_text())
         self.assertEqual(manifest["id"], "org.lux.login-background")

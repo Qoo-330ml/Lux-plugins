@@ -57,12 +57,12 @@ jobs:
         run: |
           python3 scripts/package_plugin.py \
             --id org.lux.login-background \
-            --version 0.1.0 \
+            --version 0.1.1 \
             --manifest manifests/org.lux.login-background.json \
             --binary "target/${{ matrix.target }}/release/lux-plugin-login-background" \
             --platform linux \
             --arch "${{ matrix.arch }}" \
-            --output "artifacts/org.lux.login-background-0.1.0-linux-${{ matrix.arch }}.zip"
+            --output "artifacts/org.lux.login-background-0.1.1-linux-${{ matrix.arch }}.zip"
       - name: Verify package manifest and checksums
         run: |
           python3 - <<'PY'
@@ -72,7 +72,7 @@ jobs:
           from zipfile import ZipFile
 
           for plugin_id, version in (
-              ("org.lux.login-background", "0.1.0"),
+              ("org.lux.login-background", "0.1.1"),
           ):
               package = Path(f"artifacts/{plugin_id}-{version}-linux-${{ matrix.arch }}.zip")
               with ZipFile(package) as archive:
