@@ -151,7 +151,7 @@
       "name": "统一登录背景",
       "description": "在必应每日图片、TMDb 日榜横幅与单张自定义图片之间选择 Lux 登录页背景。",
       "category": "UTILITY",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "runtime": "process",
       "providerKey": null,
       "aliases": [],
@@ -162,14 +162,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.0-linux-aarch64.zip",
-          "sha256": "6d1bace71741eae363518ad3b3fdb934c5b4424f8643b4260c14eeed9b876478"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.1-linux-aarch64.zip",
+          "sha256": "35ae7fcf0b5eef98cbcc3d403bffb61a8199d060288064271f90ed45b7b96dea"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.0-linux-x86_64.zip",
-          "sha256": "5e65df8a55d461c3b8a0692a063d3e63d9a78d36d6985168dd76585eee00b1fe"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.1-linux-x86_64.zip",
+          "sha256": "320d22e0b367b0ef62c01d56b869bc0e3f929fe06df3482b6b0b180de6866945"
         }
       ]
     },
