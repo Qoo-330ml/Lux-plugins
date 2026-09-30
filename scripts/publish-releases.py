@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import subprocess
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 from zipfile import ZipFile
 
 
@@ -12,7 +14,10 @@ def main() -> None:
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--target", required=True)
+    parser.add_argument("--existing-index", type=Path)
     args = parser.parse_args()
+
+    catalog_hashes = load_catalog_hashes(args.existing_index)
 
     packages_by_plugin = defaultdict(list)
     for package in sorted(args.artifacts.rglob("*.zip")):
@@ -27,6 +32,24 @@ def main() -> None:
         raise SystemExit(f"no plugin packages found under {args.artifacts}")
 
     for plugin_id, packages in sorted(packages_by_plugin.items()):
+        to_upload = []
+        has_cataloged_asset = False
+        for package in packages:
+            asset_url = (
+                f"https://github.com/{args.repository}/releases/download/{plugin_id}/{package.name}"
+            )
+            package_hash = hashlib.sha256(package.read_bytes()).hexdigest()
+            existing_hash = catalog_hashes.get(asset_url)
+            if existing_hash is not None:
+                has_cataloged_asset = True
+                if existing_hash != package_hash:
+                    raise SystemExit(
+                        f"refusing to replace published asset {package.name}; "
+                        "bump the plugin version before publishing changed content"
+                    )
+                continue
+            to_upload.append(package)
+
         release_exists = subprocess.run(
             ["gh", "release", "view", "--repo", args.repository, plugin_id],
             check=False,
@@ -34,18 +57,22 @@ def main() -> None:
             stderr=subprocess.DEVNULL,
         ).returncode == 0
         if release_exists:
-            run_gh(
-                [
-                    "release",
-                    "upload",
-                    "--repo",
-                    args.repository,
-                    plugin_id,
-                    "--clobber",
-                    *(str(package) for package in packages),
-                ]
-            )
+            if to_upload:
+                run_gh(
+                    [
+                        "release",
+                        "upload",
+                        "--repo",
+                        args.repository,
+                        plugin_id,
+                        *(str(package) for package in to_upload),
+                    ]
+                )
         else:
+            if has_cataloged_asset:
+                raise SystemExit(
+                    f"catalog references packages for {plugin_id}, but its GitHub release is missing"
+                )
             run_gh(
                 [
                     "release",
@@ -53,7 +80,7 @@ def main() -> None:
                     "--repo",
                     args.repository,
                     plugin_id,
-                    *(str(package) for package in packages),
+                    *(str(package) for package in to_upload),
                     "--target",
                     args.target,
                     "--title",
@@ -62,6 +89,27 @@ def main() -> None:
                     f"Automated package release for {plugin_id}.",
                 ]
             )
+
+
+def load_catalog_hashes(index_path: Optional[Path]) -> dict[str, str]:
+    if index_path is None or not index_path.exists():
+        return {}
+    try:
+        catalog = json.loads(index_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"could not read existing plugin index: {error}") from error
+    hashes = {}
+    for plugin in catalog.get("plugins", []):
+        if not isinstance(plugin, dict):
+            continue
+        for package in plugin.get("packages", []):
+            if not isinstance(package, dict):
+                continue
+            url = package.get("url")
+            sha256 = package.get("sha256")
+            if isinstance(url, str) and isinstance(sha256, str):
+                hashes[url] = sha256
+    return hashes
 
 
 def run_gh(arguments: list[str]) -> None:
