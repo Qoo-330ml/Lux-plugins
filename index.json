@@ -4,33 +4,6 @@
   "description": "Lux 官方插件目录",
   "plugins": [
     {
-      "id": "org.lux.bing-daily-background",
-      "name": "Bing 每日图片",
-      "description": "将 Bing 每日 1920×1080 大图铺满登录页左侧。该端点不是微软承诺的公共 API；图片许可可能因作品而异，仅在管理员确认适用的个人用途许可后启用。",
-      "category": "UTILITY",
-      "version": "0.1.0",
-      "runtime": "process",
-      "providerKey": null,
-      "aliases": [],
-      "capabilities": [
-        "login_background.get"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.bing-daily-background/org.lux.bing-daily-background-0.1.0-linux-aarch64.zip",
-          "sha256": "55bec01d3a4d79aa6ccf03d9860b84a02d0fb38b262060e84b52b5d13c1057da"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.bing-daily-background/org.lux.bing-daily-background-0.1.0-linux-x86_64.zip",
-          "sha256": "1f04464dde4a376944bc71fb5fa260299027045f6185c16e18257ae508f0bdd9"
-        }
-      ]
-    },
-    {
       "id": "org.lux.danmaku",
       "name": "弹幕匹配",
       "description": "匹配本地视频并获取 Bilibili 标准弹幕 XML。",
@@ -174,6 +147,33 @@
       ]
     },
     {
+      "id": "org.lux.login-background",
+      "name": "统一登录背景",
+      "description": "在必应每日图片、TMDb 日榜横幅与单张自定义图片之间选择 Lux 登录页背景。",
+      "category": "UTILITY",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "login_background.get"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.0-linux-aarch64.zip",
+          "sha256": "6d1bace71741eae363518ad3b3fdb934c5b4424f8643b4260c14eeed9b876478"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.login-background/org.lux.login-background-0.1.0-linux-x86_64.zip",
+          "sha256": "5e65df8a55d461c3b8a0692a063d3e63d9a78d36d6985168dd76585eee00b1fe"
+        }
+      ]
+    },
+    {
       "id": "org.lux.qoo-ip138",
       "name": "ip138 IP归属地查询",
       "description": "通过 ipshudi.com 查询公网 IP 的归属地信息。",
@@ -286,33 +286,6 @@
           "arch": "x86_64",
           "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.12-linux-x86_64.zip",
           "sha256": "78db9b7d0bdff0cc38f16b80d0adb453c6d4322764919db403a4e86f378060af"
-        }
-      ]
-    },
-    {
-      "id": "org.lux.tmdb-trending-background",
-      "name": "TMDb 日榜横幅背景",
-      "description": "从 TMDb 日榜电影与剧集中选取第一张有效横幅图并铺满登录页左侧，仅供非商业用途。请先核对 TMDb API 许可；商业用途需要与 TMDb 签订书面协议。",
-      "category": "UTILITY",
-      "version": "0.1.1",
-      "runtime": "process",
-      "providerKey": null,
-      "aliases": [],
-      "capabilities": [
-        "login_background.get"
-      ],
-      "packages": [
-        {
-          "platform": "linux",
-          "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb-trending-background/org.lux.tmdb-trending-background-0.1.1-linux-aarch64.zip",
-          "sha256": "4fe796423949937e415f3a368d6f4793d1ee5025d296e337fdda314f1575c5c0"
-        },
-        {
-          "platform": "linux",
-          "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb-trending-background/org.lux.tmdb-trending-background-0.1.1-linux-x86_64.zip",
-          "sha256": "0676f38a0f94fd8334e84f4d0ede1a54a2a306761f1f43a78e9f0136248eb0ae"
         }
       ]
     },
