@@ -31,6 +31,8 @@ pub const MEDIA_SOURCE_KIND_STRM_URL: &str = "STRM_URL";
 pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
 pub const DANMAKU_MATCH_CAPABILITY: &str = "danmaku.match";
 pub const LOGIN_BACKGROUND_GET_CAPABILITY: &str = "login_background.get";
+pub const UNIFIED_LOGIN_BACKGROUND_PLUGIN_ID: &str = "org.lux.login-background";
+pub const LOGIN_BACKGROUND_CUSTOM_IMAGE_PATH: &str = "/api/v1/auth/login-background/custom-image";
 pub const EMBY_MIGRATION_CAPABILITY: &str = "migration.emby";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
@@ -318,12 +320,24 @@ impl PluginManifest {
             validate_text("config field label", &field.label, 128)?;
             if !matches!(
                 field.input_type.as_str(),
-                "text" | "password" | "select" | "toggle" | "number"
+                "text" | "password" | "select" | "toggle" | "number" | "image"
             ) {
                 return Err(PluginManifestError::Invalid(format!(
                     "unsupported config field type: {}",
                     field.input_type
                 )));
+            }
+            if field.input_type == "image"
+                && (self.plugin_type != PLUGIN_TYPE_LOGIN_BACKGROUND
+                    || self.id != UNIFIED_LOGIN_BACKGROUND_PLUGIN_ID
+                    || field.required
+                    || field.sensitive
+                    || field.default_value.is_some())
+            {
+                return Err(PluginManifestError::Invalid(
+                    "image config fields are reserved for the optional, non-sensitive unified login background plugin"
+                        .to_owned(),
+                ));
             }
             if field.input_type == "select" {
                 if field.options.is_empty() == field.options_source.is_none()
@@ -375,6 +389,17 @@ impl PluginManifest {
                     }
                 }
             }
+        }
+        if self
+            .config_fields
+            .iter()
+            .filter(|field| field.input_type == "image")
+            .count()
+            > 1
+        {
+            return Err(PluginManifestError::Invalid(
+                "login background plugins may declare only one image config field".to_owned(),
+            ));
         }
         self.permissions.validate()?;
         for file in &self.files {
