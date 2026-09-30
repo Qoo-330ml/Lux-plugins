@@ -58,5 +58,6 @@ fn official_catalog_contains_only_the_unified_background_provider() {
         .find(|plugin| plugin["id"] == "org.lux.login-background")
         .expect("unified provider should be registered");
     assert_eq!(entry["binary"], "lux-plugin-login-background");
+    assert_eq!(entry["version"], "0.1.1");
     assert_eq!(entry["manifest"], "manifests/org.lux.login-background.json");
 }

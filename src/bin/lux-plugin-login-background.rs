@@ -171,6 +171,16 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
     }
 }
 
+fn tmdb_client_config(proxy_url: Option<String>) -> TmdbClientConfig {
+    TmdbClientConfig {
+        proxy_url,
+        follow_redirects: false,
+        timeout: Duration::from_secs(10),
+        max_retries: 0,
+        ..TmdbClientConfig::default()
+    }
+}
+
 async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
     if !params.as_object().is_some_and(|values| values.is_empty()) {
         return Err(UnifiedBackgroundError::InvalidRequest.into());
@@ -195,13 +205,8 @@ async fn get_background(params: Value) -> Result<Value, PluginRpcError> {
         Some(LoginBackgroundSource::TmdbTrending) => {
             let proxy_url = proxy_url_from_env()
                 .map_err(|_| PluginRpcError::from(UnifiedBackgroundError::ConfigurationInvalid))?;
-            let client = TmdbClient::new_with_embedded_fallback(TmdbClientConfig {
-                proxy_url,
-                timeout: Duration::from_secs(10),
-                max_retries: 3,
-                ..TmdbClientConfig::default()
-            })
-            .map_err(|_| PluginRpcError::from(UnifiedBackgroundError::ConfigurationInvalid))?;
+            let client = TmdbClient::new_with_embedded_fallback(tmdb_client_config(proxy_url))
+                .map_err(|_| PluginRpcError::from(UnifiedBackgroundError::ConfigurationInvalid))?;
             fetch_tmdb_daily_backdrop(&client)
                 .await
                 .map_err(PluginRpcError::from)?
@@ -498,8 +503,16 @@ mod tests {
 
     use super::{
         LoginBackgroundSource, PluginConfig, UnifiedBackgroundError, bing_login_background_result,
-        custom_image_result, safe_bing_image_url, tmdb_login_background_result,
+        custom_image_result, safe_bing_image_url, tmdb_client_config, tmdb_login_background_result,
     };
+
+    #[test]
+    fn production_tmdb_client_disables_redirects_and_retries() {
+        let config = tmdb_client_config(None);
+
+        assert!(!config.follow_redirects);
+        assert_eq!(config.max_retries, 0);
+    }
 
     #[test]
     fn source_modes_are_closed_and_use_independent_consent_gates() {
@@ -774,5 +787,56 @@ mod tests {
         assert!(request.starts_with("GET /3/trending/all/day?language=zh-CN&api_key="));
         assert_eq!(result.items.len(), 1);
         assert!(!result.items[0].image_url.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tmdb_api_redirect_does_not_trigger_a_second_request() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock server should bind");
+        let address = listener
+            .local_addr()
+            .expect("mock server address should exist");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("first request should connect");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).await.expect("request should read");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: /redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("redirect response should write");
+            let second_request =
+                tokio::time::timeout(Duration::from_millis(100), listener.accept()).await;
+            (
+                String::from_utf8(request).expect("request should be valid HTTP text"),
+                second_request.is_ok(),
+            )
+        });
+        let mut config = super::tmdb_client_config(None);
+        config.base_url = format!("http://{address}/");
+        let client = TmdbClient::new_with_embedded_fallback(config)
+            .expect("mock client should use embedded fallback credential");
+
+        let result = super::fetch_tmdb_daily_backdrop(&client).await;
+        let (request, redirected) = server.await.expect("mock server should finish");
+
+        assert!(matches!(result, Err(UnifiedBackgroundError::Upstream)));
+        assert!(request.starts_with("GET /3/trending/all/day?language=zh-CN&api_key="));
+        assert!(
+            !redirected,
+            "TMDb redirects must not trigger another request"
+        );
     }
 }
