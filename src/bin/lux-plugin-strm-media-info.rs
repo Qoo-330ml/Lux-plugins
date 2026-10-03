@@ -104,17 +104,59 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "configured": true
         })),
         "media.probe" => probe(params).await,
-        "emby.sync_media_info" => Ok(json!({
-            "statusCode": 400,
-            "headers": {},
-            "bodyBase64": ""
-        })),
+        "emby.sync_media_info" => sync_media_info(params),
         "plugin.shutdown" => Ok(json!({"accepted": true})),
         _ => Err(PluginRpcError {
             code: "PLUGIN_INVALID_REQUEST".to_owned(),
             message: "unsupported plugin method".to_owned(),
         }),
     }
+}
+
+fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
+    let request = params.as_object().ok_or_else(|| PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: "Emby route request is invalid".to_owned(),
+    })?;
+    let body_base64 = request
+        .get("bodyBase64")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if body_base64.is_empty() {
+        return Ok(json!({
+            "statusCode": 400,
+            "headers": {},
+            "bodyBase64": ""
+        }));
+    }
+    let body = BASE64.decode(body_base64).map_err(|_| PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: "Emby route body is not valid base64".to_owned(),
+    })?;
+    let bundles = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .filter(|bundles| {
+            !bundles.is_empty()
+                && bundles.iter().all(|bundle| {
+                    bundle
+                        .as_object()
+                        .and_then(|value| value.get("MediaSourceInfo"))
+                        .and_then(Value::as_object)
+                        .is_some()
+                })
+        });
+    if bundles.is_none() {
+        return Err(PluginRpcError {
+            code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+            message: "Emby media info body is invalid".to_owned(),
+        });
+    }
+    Ok(json!({
+        "statusCode": 200,
+        "headers": {"content-type": "application/json; charset=utf-8"},
+        "bodyBase64": body_base64
+    }))
 }
 
 async fn probe(params: Value) -> Result<Value, PluginRpcError> {
@@ -521,7 +563,8 @@ fn rpc_stream(stream: luxd::application::probe::MediaStreamResult) -> MediaProbe
 
 #[cfg(test)]
 mod tests {
-    use super::handle_method;
+    use super::{BASE64, handle_method};
+    use base64::Engine as _;
     use serde_json::json;
 
     #[tokio::test]
@@ -542,5 +585,29 @@ mod tests {
         assert_eq!(result["statusCode"], 400);
         assert_eq!(result["headers"], json!({}));
         assert_eq!(result["bodyBase64"], "");
+    }
+
+    #[test]
+    fn emby_sync_media_info_accepts_a_valid_restore_bundle() {
+        let body = json!([{
+            "MediaSourceInfo": {
+                "Container": "mkv",
+                "RunTimeTicks": 120000000,
+                "MediaStreams": [{"Type": "Video", "Index": 0, "Codec": "hevc"}]
+            },
+            "Chapters": [{"StartPositionTicks": 0, "Name": "Chapter 1", "MarkerType": "Chapter", "ChapterIndex": 0}]
+        }]);
+        let body_base64 = BASE64.encode(serde_json::to_vec(&body).expect("bundle JSON"));
+        let result = super::sync_media_info(json!({
+            "method": "POST",
+            "path": "/Items/SyncMediaInfo",
+            "query": "Path=%2Fmedia.strm",
+            "headers": {},
+            "bodyBase64": body_base64
+        }))
+        .expect("restore bundle should be accepted");
+
+        assert_eq!(result["statusCode"], 200);
+        assert_eq!(result["bodyBase64"], body_base64);
     }
 }
