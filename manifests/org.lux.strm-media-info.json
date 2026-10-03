@@ -9,7 +9,7 @@
   "type": "media_probe",
   "category": "MEDIA",
   "supportedItemTypes": [],
-  "capabilities": ["media.probe", "emby.route"],
+  "capabilities": ["media.probe", "emby.route", "media.info.import"],
   "embyRoutes": [
     {
       "method": "POST",

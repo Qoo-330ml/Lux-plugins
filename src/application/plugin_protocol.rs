@@ -1,4 +1,4 @@
-use std::{fmt, path::Path};
+use std::{collections::BTreeMap, fmt, path::Path};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -490,6 +490,21 @@ pub struct PluginEmbyRoute {
     pub rpc_method: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginEmbyRouteRequest {
+    pub method: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub body_base64: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host_capabilities: Vec<String>,
+}
+
 impl PluginEmbyRoute {
     fn validate(&self) -> Result<(), PluginManifestError> {
         let method = self.method.to_ascii_uppercase();
@@ -826,6 +841,35 @@ pub struct MediaProbeRpcResult {
     pub streams: Vec<MediaProbeRpcStream>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail_jpeg_base64: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginMediaInfoImport {
+    pub target: PluginMediaInfoTarget,
+    pub media: MediaProbeRpcResult,
+    #[serde(default)]
+    pub chapters: Vec<PluginMediaInfoChapter>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginMediaInfoTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginMediaInfoChapter {
+    pub start_position_ticks: i64,
+    pub chapter_index: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

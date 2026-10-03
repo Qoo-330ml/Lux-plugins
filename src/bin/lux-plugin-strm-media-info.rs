@@ -1,9 +1,10 @@
-use std::{path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use luxd::application::{
     plugin_protocol::{
-        MediaProbeRpcResult, MediaProbeRpcStream, MediaProbeRpcStreamType, PluginRequest,
+        MediaProbeRpcResult, MediaProbeRpcStream, MediaProbeRpcStreamType, PluginEmbyRouteRequest,
+        PluginMediaInfoChapter, PluginMediaInfoImport, PluginMediaInfoTarget, PluginRequest,
         PluginResponse, PluginRpcError,
     },
     probe::{MediaProbeResult, ProbeError, StreamType, parse_probe_json},
@@ -114,14 +115,12 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
 }
 
 fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
-    let request = params.as_object().ok_or_else(|| PluginRpcError {
-        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
-        message: "Emby route request is invalid".to_owned(),
-    })?;
-    let body_base64 = request
-        .get("bodyBase64")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let request: PluginEmbyRouteRequest =
+        serde_json::from_value(params).map_err(|_| PluginRpcError {
+            code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+            message: "Emby route request is invalid".to_owned(),
+        })?;
+    let body_base64 = request.body_base64;
     if body_base64.is_empty() {
         return Ok(json!({
             "statusCode": 400,
@@ -130,13 +129,9 @@ fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
         }));
     }
     let supports_import = request
-        .get("hostCapabilities")
-        .and_then(Value::as_array)
-        .is_some_and(|capabilities| {
-            capabilities
-                .iter()
-                .any(|capability| capability.as_str() == Some("media.info.import"))
-        });
+        .host_capabilities
+        .iter()
+        .any(|capability| capability == "media.info.import");
     if !supports_import {
         return Ok(json!({
             "statusCode": 501,
@@ -148,9 +143,12 @@ fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
         code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
         message: "Emby route body is not valid base64".to_owned(),
     })?;
-    let bundles = serde_json::from_slice::<Value>(&body)
-        .ok()
-        .and_then(|value| value.as_array().cloned())
+    let document: Value = serde_json::from_slice(&body).map_err(|_| PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: "Emby media info body is invalid".to_owned(),
+    })?;
+    let bundles = document
+        .as_array()
         .filter(|bundles| {
             !bundles.is_empty()
                 && bundles.iter().all(|bundle| {
@@ -160,18 +158,225 @@ fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
                         .and_then(Value::as_object)
                         .is_some()
                 })
-        });
-    if bundles.is_none() {
-        return Err(PluginRpcError {
+        })
+        .ok_or_else(|| PluginRpcError {
             code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
             message: "Emby media info body is invalid".to_owned(),
-        });
+        })?;
+    if bundles.len() != 1 {
+        return Err(invalid_restore(
+            "Emby media info body must contain one bundle",
+        ));
     }
+    let bundle = bundles.first().ok_or_else(|| PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: "Emby media info body is empty".to_owned(),
+    })?;
+    let probe = parse_emby_bundle(bundle)?;
+    let operation = PluginMediaInfoImport {
+        target: restore_target(&request.query)?,
+        media: rpc_result(probe, None),
+        chapters: parse_restore_chapters(bundle)?,
+    };
     Ok(json!({
         "statusCode": 200,
         "headers": {"content-type": "application/json; charset=utf-8"},
-        "bodyBase64": body_base64
+        "bodyBase64": "",
+        "mediaInfoImport": operation
     }))
+}
+
+fn parse_emby_bundle(bundle: &Value) -> Result<MediaProbeResult, PluginRpcError> {
+    let source = bundle
+        .get("MediaSourceInfo")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_restore("media source is invalid"))?;
+    let values = source
+        .get("MediaStreams")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid_restore("media streams are invalid"))?;
+    if values.len() > 128 {
+        return Err(invalid_restore("media streams are too large"));
+    }
+    let streams = values
+        .iter()
+        .enumerate()
+        .map(|(ordinal, value)| {
+            let stream = value
+                .as_object()
+                .ok_or_else(|| invalid_restore("media stream is invalid"))?;
+            let stream_type = match stream
+                .get("Type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_uppercase()
+                .as_str()
+            {
+                "VIDEO" => StreamType::Video,
+                "AUDIO" => StreamType::Audio,
+                "SUBTITLE" => StreamType::Subtitle,
+                _ => return Err(invalid_restore("media stream type is invalid")),
+            };
+            let stream_index = stream
+                .get("Index")
+                .and_then(Value::as_i64)
+                .unwrap_or(ordinal as i64);
+            Ok(luxd::application::probe::MediaStreamResult {
+                stream_index,
+                stream_type,
+                codec: string_field(stream, "Codec"),
+                language: string_field(stream, "Language"),
+                title: string_field(stream, "DisplayTitle"),
+                is_default: bool_field(stream, "IsDefault"),
+                is_forced: bool_field(stream, "IsForced"),
+                details: emby_stream_details(stream),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(MediaProbeResult {
+        container: string_field(source, "Container"),
+        source_size: integer_field(source, "Size"),
+        duration_ticks: integer_field(source, "RunTimeTicks"),
+        bitrate: integer_field(source, "Bitrate"),
+        streams,
+    })
+}
+
+fn invalid_restore(message: &str) -> PluginRpcError {
+    PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: message.to_owned(),
+    }
+}
+
+fn string_field(object: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
+    object.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+fn integer_field(object: &serde_json::Map<String, Value>, key: &str) -> Option<i64> {
+    object
+        .get(key)
+        .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+}
+
+fn bool_field(object: &serde_json::Map<String, Value>, key: &str) -> bool {
+    object
+        .get(key)
+        .and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|v| v != 0)))
+        .unwrap_or(false)
+}
+
+fn emby_stream_details(stream: &serde_json::Map<String, Value>) -> BTreeMap<String, Value> {
+    const FIELDS: [&str; 27] = [
+        "DisplayLanguage",
+        "TimeBase",
+        "VideoRange",
+        "VideoRangeType",
+        "IsInterlaced",
+        "BitRate",
+        "BitDepth",
+        "RefFrames",
+        "Height",
+        "Width",
+        "AverageFrameRate",
+        "RealFrameRate",
+        "Profile",
+        "AspectRatio",
+        "PixelFormat",
+        "Level",
+        "ChannelLayout",
+        "Channels",
+        "SampleRate",
+        "IsHearingImpaired",
+        "ColorSpace",
+        "ColorTransfer",
+        "ColorPrimaries",
+        "ExtendedVideoType",
+        "ExtendedVideoSubType",
+        "ExtendedVideoSubTypeDescription",
+        "IsTextSubtitleStream",
+    ];
+    FIELDS
+        .iter()
+        .filter_map(|key| {
+            stream
+                .get(*key)
+                .map(|value| ((*key).to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+fn restore_target(query: &Option<String>) -> Result<PluginMediaInfoTarget, PluginRpcError> {
+    let query = query.as_deref().ok_or_else(|| PluginRpcError {
+        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+        message: "Emby media info target is missing".to_owned(),
+    })?;
+    let url = reqwest::Url::parse(&format!("http://lux.invalid/?{query}")).map_err(|_| {
+        PluginRpcError {
+            code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+            message: "Emby media info target is invalid".to_owned(),
+        }
+    })?;
+    let path = url
+        .query_pairs()
+        .find(|(key, _)| key.eq_ignore_ascii_case("path"));
+    let id = url
+        .query_pairs()
+        .find(|(key, _)| key.eq_ignore_ascii_case("id"));
+    match (path, id) {
+        (Some((_, value)), None) if !value.is_empty() => Ok(PluginMediaInfoTarget {
+            path: Some(value.into_owned()),
+            ..Default::default()
+        }),
+        (None, Some((_, value))) if !value.is_empty() => Ok(PluginMediaInfoTarget {
+            item_id: Some(value.into_owned()),
+            ..Default::default()
+        }),
+        _ => Err(PluginRpcError {
+            code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+            message: "Emby media info target is ambiguous".to_owned(),
+        }),
+    }
+}
+
+fn parse_restore_chapters(bundle: &Value) -> Result<Vec<PluginMediaInfoChapter>, PluginRpcError> {
+    let values = bundle
+        .get("Chapters")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if values.len() > 512 {
+        return Err(PluginRpcError {
+            code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+            message: "Emby media info chapters are too large".to_owned(),
+        });
+    }
+    values
+        .iter()
+        .map(|value| {
+            let object = value.as_object().ok_or_else(|| PluginRpcError {
+                code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+                message: "Emby chapter is invalid".to_owned(),
+            })?;
+            Ok(PluginMediaInfoChapter {
+                start_position_ticks: object
+                    .get("StartPositionTicks")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| PluginRpcError {
+                        code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
+                        message: "Emby chapter start is invalid".to_owned(),
+                    })?,
+                chapter_index: object
+                    .get("ChapterIndex")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| invalid_restore("Emby chapter index is invalid"))?,
+                name: object
+                    .get("Name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            })
+        })
+        .collect()
 }
 
 async fn probe(params: Value) -> Result<Value, PluginRpcError> {
@@ -624,6 +829,9 @@ mod tests {
         .expect("restore bundle should be accepted");
 
         assert_eq!(result["statusCode"], 200);
-        assert_eq!(result["bodyBase64"], body_base64);
+        assert_eq!(result["bodyBase64"], "");
+        assert_eq!(result["mediaInfoImport"]["target"]["path"], "/media.strm");
+        assert_eq!(result["mediaInfoImport"]["media"]["container"], "mkv");
+        assert_eq!(result["mediaInfoImport"]["chapters"][0]["chapterIndex"], 0);
     }
 }
