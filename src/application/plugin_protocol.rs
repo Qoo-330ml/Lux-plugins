@@ -33,6 +33,7 @@ pub const DANMAKU_MATCH_CAPABILITY: &str = "danmaku.match";
 pub const LOGIN_BACKGROUND_GET_CAPABILITY: &str = "login_background.get";
 pub const UNIFIED_LOGIN_BACKGROUND_PLUGIN_ID: &str = "org.lux.login-background";
 pub const LOGIN_BACKGROUND_CUSTOM_IMAGE_PATH: &str = "/api/v1/auth/login-background/custom-image";
+pub const EMBY_ROUTE_CAPABILITY: &str = "emby.route";
 pub const EMBY_MIGRATION_CAPABILITY: &str = "migration.emby";
 pub const STRM_RESOLVE_METHOD: &str = "strm.resolve";
 pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
@@ -75,6 +76,8 @@ pub struct PluginManifest {
     pub supported_media_source_kinds: Vec<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub emby_routes: Vec<PluginEmbyRoute>,
     #[serde(default)]
     pub config_fields: Vec<PluginConfigField>,
     #[serde(default)]
@@ -296,6 +299,31 @@ impl PluginManifest {
             }
         }
         self.runtime.validate()?;
+        if self.emby_routes.len() > 32 {
+            return Err(PluginManifestError::Invalid(
+                "manifest declares too many Emby routes".to_owned(),
+            ));
+        }
+        if !self.emby_routes.is_empty()
+            && !self
+                .capabilities
+                .iter()
+                .any(|capability| capability == EMBY_ROUTE_CAPABILITY)
+        {
+            return Err(PluginManifestError::Invalid(
+                "Emby routes require emby.route".to_owned(),
+            ));
+        }
+        let mut route_keys = std::collections::HashSet::new();
+        for route in &self.emby_routes {
+            route.validate()?;
+            if !route_keys.insert((route.method.as_str(), route.path.as_str())) {
+                return Err(PluginManifestError::Invalid(format!(
+                    "duplicate Emby route: {} {}",
+                    route.method, route.path
+                )));
+            }
+        }
         if self.supported_item_types.len() > 32
             || self.supported_media_source_kinds.len() > 8
             || self.capabilities.len() > 64
@@ -452,6 +480,42 @@ fn default_plugin_category() -> String {
 pub struct PluginRuntime {
     pub kind: String,
     pub entrypoint: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginEmbyRoute {
+    pub method: String,
+    pub path: String,
+    pub rpc_method: String,
+}
+
+impl PluginEmbyRoute {
+    fn validate(&self) -> Result<(), PluginManifestError> {
+        let method = self.method.to_ascii_uppercase();
+        if method != self.method
+            || !matches!(
+                method.as_str(),
+                "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD"
+            )
+        {
+            return Err(PluginManifestError::Invalid(
+                "Emby route method must be an uppercase HTTP method".to_owned(),
+            ));
+        }
+        if self.path.len() > 256
+            || !self.path.starts_with('/')
+            || self.path.contains('?')
+            || self.path.contains('#')
+            || self.path.contains('*')
+            || self.path.contains("..")
+        {
+            return Err(PluginManifestError::Invalid(
+                "Emby route path must be an exact safe path".to_owned(),
+            ));
+        }
+        validate_identifier("Emby route RPC method", &self.rpc_method, 128)
+    }
 }
 
 impl PluginRuntime {
