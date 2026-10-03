@@ -9,7 +9,14 @@
   "type": "media_probe",
   "category": "MEDIA",
   "supportedItemTypes": [],
-  "capabilities": ["media.probe"],
+  "capabilities": ["media.probe", "emby.route"],
+  "embyRoutes": [
+    {
+      "method": "POST",
+      "path": "/Items/SyncMediaInfo",
+      "rpcMethod": "emby.sync_media_info"
+    }
+  ],
   "configFields": [
     {"key": "libraryIds", "label": "媒体库", "type": "select", "required": true, "multiple": true, "optionsSource": "media-libraries", "description": "选择需要提取媒体信息的媒体库。"},
     {"key": "concurrency", "label": "并发数", "type": "number", "required": true, "defaultValue": 2, "minimum": 1, "maximum": 64, "description": "远程媒体信息提取的最大并发数。"},

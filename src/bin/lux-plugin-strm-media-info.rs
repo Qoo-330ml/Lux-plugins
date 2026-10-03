@@ -96,7 +96,7 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "id": PLUGIN_ID,
             "name": PLUGIN_NAME,
             "apiVersion": 1,
-            "capabilities": ["media.probe"],
+            "capabilities": ["media.probe", "emby.route"],
             "supportedItemTypes": []
         })),
         "plugin.health" => Ok(json!({
@@ -104,6 +104,11 @@ async fn handle_method(method: &str, params: Value) -> Result<Value, PluginRpcEr
             "configured": true
         })),
         "media.probe" => probe(params).await,
+        "emby.sync_media_info" => Ok(json!({
+            "statusCode": 400,
+            "headers": {},
+            "bodyBase64": ""
+        })),
         "plugin.shutdown" => Ok(json!({"accepted": true})),
         _ => Err(PluginRpcError {
             code: "PLUGIN_INVALID_REQUEST".to_owned(),
