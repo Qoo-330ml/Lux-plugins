@@ -6,7 +6,7 @@ fn strm_media_info_manifest_declares_the_mediatidy_probe_route() {
     let mut manifest: Value =
         serde_json::from_str(include_str!("../manifests/org.lux.strm-media-info.json"))
             .expect("manifest should be valid JSON");
-    manifest["version"] = Value::String("0.2.0".to_owned());
+    manifest["version"] = Value::String("0.2.1".to_owned());
     manifest["runtime"]["entrypoint"] = Value::String("binaries/plugin".to_owned());
 
     let manifest = PluginManifest::from_value(manifest).expect("manifest should validate");
