@@ -129,6 +129,21 @@ fn sync_media_info(params: Value) -> Result<Value, PluginRpcError> {
             "bodyBase64": ""
         }));
     }
+    let supports_import = request
+        .get("hostCapabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability.as_str() == Some("media.info.import"))
+        });
+    if !supports_import {
+        return Ok(json!({
+            "statusCode": 501,
+            "headers": {},
+            "bodyBase64": ""
+        }));
+    }
     let body = BASE64.decode(body_base64).map_err(|_| PluginRpcError {
         code: "EMBY_ROUTE_INVALID_REQUEST".to_owned(),
         message: "Emby route body is not valid base64".to_owned(),
@@ -602,6 +617,7 @@ mod tests {
             "method": "POST",
             "path": "/Items/SyncMediaInfo",
             "query": "Path=%2Fmedia.strm",
+            "hostCapabilities": ["media.info.import"],
             "headers": {},
             "bodyBase64": body_base64
         }))
