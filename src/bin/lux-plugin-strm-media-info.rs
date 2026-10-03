@@ -518,3 +518,29 @@ fn rpc_stream(stream: luxd::application::probe::MediaStreamResult) -> MediaProbe
         details: stream.details,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::handle_method;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn emby_sync_media_info_returns_the_compatibility_probe_status() {
+        let result = handle_method(
+            "emby.sync_media_info",
+            json!({
+                "method": "POST",
+                "path": "/Items/SyncMediaInfo",
+                "query": "Path=%2Fprobe.strm",
+                "headers": {},
+                "bodyBase64": ""
+            }),
+        )
+        .await
+        .expect("compatibility RPC should return a response");
+
+        assert_eq!(result["statusCode"], 400);
+        assert_eq!(result["headers"], json!({}));
+        assert_eq!(result["bodyBase64"], "");
+    }
+}
