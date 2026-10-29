@@ -76,7 +76,7 @@ enum WebhookUrlError {
     Invalid,
     Scheme,
     Credentials,
-    QueryOrFragment,
+    Fragment,
     MissingHost,
     PrivateNetwork,
     DangerousAddress,
@@ -419,14 +419,7 @@ fn validate_webhook_url(value: &str, allow_private_network: bool) -> Result<Url,
         return Err(WebhookUrlError::Credentials);
     }
     if url.fragment().is_some() {
-        return Err(WebhookUrlError::QueryOrFragment);
-    }
-    if url.query_pairs().any(|(key, _)| {
-        ["secret", "token", "password", "apikey", "api_key"]
-            .iter()
-            .any(|sensitive| key.to_ascii_lowercase().contains(sensitive))
-    }) {
-        return Err(WebhookUrlError::QueryOrFragment);
+        return Err(WebhookUrlError::Fragment);
     }
     let host = url
         .host_str()
@@ -614,11 +607,22 @@ mod tests {
     }
 
     #[test]
-    fn private_network_policy_rejects_local_targets_by_default() {
+    fn webhook_url_accepts_platform_query_parameters_but_rejects_credentials() {
         assert!(validate_webhook_url("http://127.0.0.1:8787/hook", false).is_err());
         assert!(validate_webhook_url("http://127.0.0.1:8787/hook", true).is_ok());
         assert!(validate_webhook_url("ftp://example.com/hook", true).is_err());
-        assert!(validate_webhook_url("https://example.com/hook?token=secret", true).is_err());
+        // 钉钉、企业微信等平台的 webhook 地址以 access_token 等参数名承载目标校验值。
+        assert!(
+            validate_webhook_url(
+                "https://oapi.dingtalk.com/robot/send?access_token=abc123",
+                true
+            )
+            .is_ok()
+        );
+        assert!(validate_webhook_url("https://example.com/hook?token=secret", true).is_ok());
+        // 明文凭据与 fragment 仍然必须拒绝。
+        assert!(validate_webhook_url("https://user:pass@example.com/hook", true).is_err());
+        assert!(validate_webhook_url("https://example.com/hook#fragment", true).is_err());
     }
 
     #[test]
