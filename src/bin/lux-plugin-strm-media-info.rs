@@ -27,6 +27,11 @@ const MAX_THUMBNAIL_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 8 * 1024;
 const TICKS_PER_SECOND: i64 = 10_000_000;
 const DEFAULT_STRM_THUMBNAIL_POSITION_PERCENT: i64 = 30;
+/// Same identity the host uses for STRM playback, so servers that gate on it treat both alike.
+const HTTP_USER_AGENT: &str = "Lux/strm-playback";
+/// Per-read/connect stall limit (microseconds) so a hung server ends the child on its own even if
+/// the host has to kill this plugin without running destructors.
+const HTTP_RW_TIMEOUT_MICROS: &str = "15000000";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -415,6 +420,8 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
     let duration_ticks = if request.include_thumbnail {
         match result.duration_ticks {
             Some(duration_ticks) => Some(duration_ticks),
+            // A full probe already read `format.duration`; asking again cannot find it.
+            None if request.include_media_info => None,
             None => Some(run_ffprobe_duration(&request.url).await?),
         }
     } else {
@@ -440,6 +447,27 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
     })
 }
 
+/// Input options that make `ffprobe`/`ffmpeg` behave like a player against HTTP(S) targets.
+fn network_args(target: &str) -> Vec<&'static str> {
+    let lower = target.get(..8).unwrap_or(target).to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        vec![
+            "-user_agent",
+            HTTP_USER_AGENT,
+            "-rw_timeout",
+            HTTP_RW_TIMEOUT_MICROS,
+            "-reconnect",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "2",
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
 async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
     let binary = ffprobe_binary()?;
     let mut child = Command::new(binary)
@@ -451,6 +479,7 @@ async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
             "-show_format",
             "-show_streams",
         ])
+        .args(network_args(url))
         .arg(url)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -470,7 +499,7 @@ async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
     .await
     .map_err(|_| timeout_error())??;
     if !output.0.success() {
-        return Err(process_error());
+        return Err(classify_failure(&output.2, process_error));
     }
     parse_probe_json(&output.1).map_err(map_probe_error)
 }
@@ -486,6 +515,7 @@ async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
             "-show_entries",
             "format=duration",
         ])
+        .args(network_args(url))
         .arg(url)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -515,7 +545,7 @@ async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
     .await
     .map_err(|_| timeout_error())??;
     if !output.0.success() {
-        return Err(duration_process_error());
+        return Err(classify_failure(&output.2, duration_process_error));
     }
     parse_duration_probe(&output.1).ok_or_else(duration_error)
 }
@@ -523,11 +553,9 @@ async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
 async fn run_ffmpeg_thumbnail(url: &str, timestamp: &str) -> Result<Vec<u8>, PluginRpcError> {
     let binary = ffmpeg_binary()?;
     let mut child = Command::new(binary)
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
+        .args(network_args(url))
         .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
             "-ss",
             timestamp,
             "-i",
@@ -573,7 +601,7 @@ async fn run_ffmpeg_thumbnail(url: &str, timestamp: &str) -> Result<Vec<u8>, Plu
     .await
     .map_err(|_| thumbnail_timeout_error())??;
     if !output.0.success() {
-        return Err(thumbnail_process_error());
+        return Err(classify_failure(&output.2, thumbnail_process_error));
     }
     if !is_valid_jpeg(&output.1) {
         return Err(thumbnail_output_error());
@@ -600,6 +628,61 @@ where
         return Err(output_error());
     }
     Ok(output)
+}
+
+/// Maps ffprobe/ffmpeg stderr to a stable, URL-free error so operators can tell an
+/// authorization problem from a missing file or a network failure.
+fn classify_failure(stderr: &[u8], fallback: fn() -> PluginRpcError) -> PluginRpcError {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    let (code, message) = if text.contains("401") || text.contains("unauthorized") {
+        (
+            "MEDIA_PROBE_HTTP_401",
+            "media source rejected the request (HTTP 401)",
+        )
+    } else if text.contains("403") || text.contains("forbidden") {
+        (
+            "MEDIA_PROBE_HTTP_403",
+            "media source rejected the request (HTTP 403)",
+        )
+    } else if text.contains("404") || text.contains("not found") {
+        (
+            "MEDIA_PROBE_HTTP_404",
+            "media source was not found (HTTP 404)",
+        )
+    } else if text.contains("429") || text.contains("too many requests") {
+        (
+            "MEDIA_PROBE_HTTP_429",
+            "media source is rate limiting requests (HTTP 429)",
+        )
+    } else if text.contains("protocol not found") || text.contains("unknown url scheme") {
+        (
+            "MEDIA_PROBE_UNSUPPORTED_PROTOCOL",
+            "ffprobe does not support this protocol",
+        )
+    } else if text.contains("connection refused")
+        || text.contains("connection timed out")
+        || text.contains("name or service not known")
+        || text.contains("could not resolve")
+        || text.contains("failed to resolve")
+        || text.contains("network is unreachable")
+        || text.contains("input/output error")
+    {
+        (
+            "MEDIA_PROBE_CONNECT_FAILED",
+            "could not connect to the media source",
+        )
+    } else if text.contains("invalid data found") || text.contains("moov atom not found") {
+        (
+            "MEDIA_PROBE_INVALID_MEDIA",
+            "media source is not a readable media file",
+        )
+    } else {
+        return fallback();
+    };
+    PluginRpcError {
+        code: code.to_owned(),
+        message: message.to_owned(),
+    }
 }
 
 fn ffprobe_binary() -> Result<PathBuf, PluginRpcError> {
@@ -796,7 +879,7 @@ fn rpc_stream(stream: luxd::application::probe::MediaStreamResult) -> MediaProbe
 
 #[cfg(test)]
 mod tests {
-    use super::{BASE64, handle_method};
+    use super::{BASE64, classify_failure, handle_method, network_args, process_error};
     use base64::Engine as _;
     use serde_json::json;
 
@@ -887,5 +970,35 @@ mod tests {
         assert_eq!(result["statusCode"], 200);
         assert_eq!(result["mediaInfoImport"]["target"]["itemId"], "media-id");
         assert!(result["mediaInfoImport"]["target"].get("path").is_none());
+    }
+
+    #[test]
+    fn http_targets_get_player_like_network_options_and_others_do_not() {
+        let args = network_args("HTTPS://cdn.example/v.mkv");
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["-user_agent", "Lux/strm-playback"])
+        );
+        assert!(args.contains(&"-rw_timeout"));
+        assert!(network_args("/mnt/media/v.mkv").is_empty());
+        assert!(network_args("ftp://nas/v.mkv").is_empty());
+    }
+
+    #[test]
+    fn stderr_is_classified_without_leaking_the_target() {
+        let forbidden = classify_failure(
+            b"https://secret.example/v?token=abc: Server returned 403 Forbidden",
+            process_error,
+        );
+        assert_eq!(forbidden.code, "MEDIA_PROBE_HTTP_403");
+        assert!(!forbidden.message.contains("secret"));
+        assert_eq!(
+            classify_failure(b"Connection refused", process_error).code,
+            "MEDIA_PROBE_CONNECT_FAILED"
+        );
+        assert_eq!(
+            classify_failure(b"something odd", process_error).code,
+            "MEDIA_PROBE_PROCESS_FAILED"
+        );
     }
 }
