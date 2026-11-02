@@ -100,3 +100,29 @@ python3 scripts/generate-index.py --artifacts dist --existing index.json \
 - 对外请求要有超时、响应大小上限、重试策略与 HTTPS 校验；网络权限必须在 manifest 的
   `permissions` 中声明。
 - `index.json` 只由发布工作流生成，手工改动会在下次发布时被覆盖。
+
+`org.lux.webhook` implements the Lux v1 `notification.send` contract. Lux supplies the
+provider-neutral event, including the unified `source`, `title`, `content`, `body`, and
+`timestamp` fields; the plugin validates the destination again, resolves all DNS addresses,
+blocks redirects and sends an HMAC-SHA256 signed JSON request. Its `payloadFormat` setting only
+selects the outer Lux-native or limited Emby-style transport shape; it does not generate or
+rewrite notification text. The target URL may reference Lux-generated fields with URL encoding.
+Delivery queues, retry scheduling and secret storage remain owned by Lux, so this plugin has no
+access to the Lux configuration directory or database.
+
+## 通知器插件（Bark、企业微信应用、飞书/Lark、邮件）
+
+`org.lux.notifier.bark`、`org.lux.notifier.wecom-app`、`org.lux.notifier.feishu` 和
+`org.lux.notifier.email` 实现 Lux 的 `notification.send` 协议。目标凭据（Bark device key、企业微信
+corpsecret、飞书 hook、SMTP 密码）由管理员在通知目标里输入，Lux 通过 RPC 的 `secret` 字段传入，插件不写日志、
+不放进返回值。四个插件共用 `src/application/notifier_plugin_sdk.rs`：stdio JSON-RPC 循环、10 秒超时且禁重定向的
+出站客户端、状态分类，以及目的地守卫 `guard_destination` / `guard_host`——默认拒绝回环、私网、链路本地和云元数据地址，
+管理员批准 `allowPrivateNetwork` 后仍拒绝危险保留地址，并把校验过的地址钉为实际连接目标。
+
+- Bark：`serverUrl`（默认 `https://api.day.app`）、`group`、`level`、`icon`、`sound`。
+- 企业微信应用：`corpId`、`agentId`、`toUser`，进程内缓存 access_token，整次投递 25 秒预算。
+- 飞书/Lark：凭据格式 `hookId` 或 `hookId#signSecret`，`region` 选择集群。
+- 邮件：STARTTLS 或 SSL/TLS，不提供明文 SMTP。
+
+协议与错误码说明见 Lux 主仓库的 `docs/PLUGIN-SDK.md`。测试：`cargo test --test notifier_bark --test
+notifier_wecom_app --test notifier_feishu --test notifier_email`。

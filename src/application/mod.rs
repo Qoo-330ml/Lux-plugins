@@ -1,9 +1,13 @@
 pub mod danmaku;
 pub mod douban;
 pub mod emby_migration;
+pub mod ip_policy;
 pub mod media_matching;
+pub mod notification_template;
+pub mod notifier_plugin_sdk;
 pub mod plugin_protocol;
 pub mod probe;
+pub mod remote_url_policy;
 pub mod settings;
 pub mod strm_probe_policy;
 pub mod tmdb;

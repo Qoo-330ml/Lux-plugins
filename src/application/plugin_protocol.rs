@@ -10,6 +10,11 @@ pub const PLUGIN_API_VERSION: u32 = 1;
 pub const PLUGIN_CATEGORY_SCRAPER: &str = "SCRAPER";
 pub const PLUGIN_CATEGORY_MEDIA: &str = "MEDIA";
 pub const PLUGIN_CATEGORY_NETWORK: &str = "NETWORK";
+/// A notification plugin may declare exactly one `sensitive` password field with this key. The host
+/// keeps the value as the target secret and passes it through the controlled RPC `secret` field.
+/// The host owns the manifest validation of this field.
+pub const SECRET_CONFIG_FIELD_KEY: &str = "secret";
+
 pub const PLUGIN_CATEGORY_NOTIFICATION: &str = "NOTIFICATION";
 pub const PLUGIN_CATEGORY_MIGRATION: &str = "MIGRATION";
 pub const PLUGIN_CATEGORY_UTILITY: &str = "UTILITY";
@@ -94,6 +99,13 @@ impl PluginManifest {
             .map_err(|error| PluginManifestError::Invalid(error.to_string()))?;
         manifest.validate()?;
         Ok(manifest)
+    }
+
+    /// The manifest field that declares the notification target credential.
+    pub fn secret_config_field(&self) -> Option<&PluginConfigField> {
+        self.config_fields
+            .iter()
+            .find(|field| field.key == SECRET_CONFIG_FIELD_KEY)
     }
 
     pub fn validate(&self) -> Result<(), PluginManifestError> {

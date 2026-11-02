@@ -1,0 +1,513 @@
+use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+pub fn bounded_display_text(value: &str) -> String {
+    value.trim().chars().take(512).collect()
+}
+
+pub fn render(event_type: &str, occurred_at: i64, data: &Map<String, Value>) -> Map<String, Value> {
+    let content = readable_content(event_type, data);
+    Map::from_iter([
+        ("source".to_owned(), json!("lux")),
+        ("title".to_owned(), json!(readable_title(event_type, data))),
+        ("content".to_owned(), json!(content.clone())),
+        ("body".to_owned(), json!(content)),
+        ("timestamp".to_owned(), json!(format_timestamp(occurred_at))),
+    ])
+}
+
+fn readable_title(event_type: &str, data: &Map<String, Value>) -> String {
+    if event_type.starts_with("PLAYBACK_") {
+        let user = string_value(data, "userName");
+        let item = playback_display_title(data);
+        let action = match event_type {
+            "PLAYBACK_STARTED" if data.get("resumed").and_then(Value::as_bool) == Some(true) => {
+                "恢复播放"
+            }
+            "PLAYBACK_STARTED" => "开始播放",
+            "PLAYBACK_PAUSED" => "暂停播放",
+            "PLAYBACK_PROGRESS" => "播放进度",
+            "PLAYBACK_STOPPED" => "停止播放",
+            _ => "播放状态",
+        };
+        let suffix = if item.is_empty() {
+            String::new()
+        } else {
+            format!(" {item}")
+        };
+        return format!("{user}{action}{suffix}");
+    }
+    match event_type {
+        "MEDIA_ADDED" => contextual_title("新增媒体", data),
+        "MEDIA_REMOVED" => {
+            let item = string_value(data, "itemTitle");
+            if item.is_empty() {
+                contextual_title("移除媒体", data)
+            } else {
+                format!("{item}已移除")
+            }
+        }
+        "SCAN_COMPLETED" => scan_title("扫描完成", data),
+        "SCAN_FAILED" => scan_title("扫描失败", data),
+        "METADATA_UPDATED" => {
+            let item = string_value(data, "itemTitle");
+            if item.is_empty() {
+                contextual_title("元数据更新", data)
+            } else {
+                format!("{item}元数据已更新")
+            }
+        }
+        "JOB_FAILED" if is_test_notification(data) => "通知测试成功".to_owned(),
+        "JOB_FAILED" => job_failed_title(data),
+        _ => "Lux 通知".to_owned(),
+    }
+}
+
+fn playback_display_title(data: &Map<String, Value>) -> String {
+    let episode = string_value(data, "itemTitle");
+    let series = string_value(data, "seriesTitle");
+    if series.is_empty() {
+        return episode;
+    }
+
+    let season = match (
+        data.get("seriesSeasonCount")
+            .and_then(Value::as_i64)
+            .filter(|count| *count > 1),
+        data.get("seasonNumber")
+            .and_then(Value::as_i64)
+            .filter(|number| *number >= 0),
+    ) {
+        (Some(_), Some(0)) => Some("特别篇".to_owned()),
+        (Some(_), Some(number)) => Some(format!("第{number}季")),
+        _ => None,
+    };
+
+    [
+        Some(series),
+        season,
+        (!episode.is_empty()).then_some(episode),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+fn contextual_title(action: &str, data: &Map<String, Value>) -> String {
+    let library = string_value(data, "libraryName");
+    if library.is_empty() {
+        action.to_owned()
+    } else {
+        format!("{library}{action}")
+    }
+}
+
+fn scan_title(action: &str, data: &Map<String, Value>) -> String {
+    contextual_title(action, data)
+}
+
+fn job_failed_title(data: &Map<String, Value>) -> String {
+    let task = string_value(data, "jobType");
+    let title = if task.is_empty() {
+        "后台任务失败".to_owned()
+    } else {
+        format!("{}失败", job_type_label(&task))
+    };
+    let library = string_value(data, "libraryName");
+    if library.is_empty() {
+        title
+    } else {
+        format!("{library}{title}")
+    }
+}
+
+fn readable_content(event_type: &str, data: &Map<String, Value>) -> String {
+    if event_type.starts_with("PLAYBACK_") {
+        return playback_content(event_type, data);
+    }
+    if event_type == "JOB_FAILED" && is_test_notification(data) {
+        return "通知测试成功\n这是 Lux 核心模板测试通知".to_owned();
+    }
+    let mut lines = Vec::new();
+    match event_type {
+        "MEDIA_ADDED" => {
+            lines.push(format!("新增媒体：{} 个", number_value(data, "addedCount")));
+        }
+        "MEDIA_REMOVED" => {
+            lines.push("媒体已移除".to_owned());
+        }
+        "SCAN_COMPLETED" => lines.push("扫描已完成".to_owned()),
+        "SCAN_FAILED" => lines.push("扫描未完成".to_owned()),
+        "METADATA_UPDATED" => lines.push("元数据已更新".to_owned()),
+        "JOB_FAILED" => lines.push("任务执行失败".to_owned()),
+        _ => lines.push("收到新的 Lux 事件".to_owned()),
+    }
+    append_library_value(&mut lines, data);
+    append_mapped_value(&mut lines, "任务", data, "jobType", job_type_label);
+    append_mapped_value(&mut lines, "模式", data, "mode", mode_label);
+    if matches!(
+        event_type,
+        "MEDIA_ADDED" | "MEDIA_REMOVED" | "SCAN_COMPLETED" | "SCAN_FAILED" | "JOB_FAILED"
+    ) {
+        append_scan_progress(&mut lines, data);
+    }
+    append_mapped_value(&mut lines, "状态", data, "status", status_label);
+    if event_type == "MEDIA_REMOVED" {
+        append_optional_labeled_count(&mut lines, "移除媒体", data, "removedCount");
+        append_optional_labeled_count(&mut lines, "删除文件", data, "deletedFileCount");
+    }
+    if matches!(
+        event_type,
+        "MEDIA_ADDED" | "MEDIA_REMOVED" | "SCAN_COMPLETED" | "SCAN_FAILED" | "JOB_FAILED"
+    ) {
+        append_optional_duration(&mut lines, data);
+    }
+    append_mapped_value(&mut lines, "错误", data, "errorCode", error_label);
+    append_optional_labeled_count(&mut lines, "候选", data, "candidateCount");
+    lines.join("\n")
+}
+
+fn append_scan_progress(lines: &mut Vec<String>, data: &Map<String, Value>) {
+    let Some(processed) = number_value_optional(data, "processedCount") else {
+        return;
+    };
+    let total = number_value_optional(data, "totalCount");
+    let text = match total.filter(|value| *value > 0) {
+        Some(total) => format!(
+            "处理：{} / {} 项",
+            format_count(processed),
+            format_count(total)
+        ),
+        None => format!("处理：{} 项", format_count(processed)),
+    };
+    lines.push(text);
+}
+
+fn append_optional_duration(lines: &mut Vec<String>, data: &Map<String, Value>) {
+    if let Some(seconds) = number_value_optional(data, "durationSeconds") {
+        lines.push(format!("总耗时：{}", format_duration(seconds)));
+    }
+}
+
+fn job_type_label(value: &str) -> String {
+    match value {
+        "RECONCILE_LIBRARY" => "全量校验".to_owned(),
+        "INCREMENTAL_SCAN" => "增量扫描".to_owned(),
+        "METADATA_REIDENTIFY" => "元数据刷新".to_owned(),
+        _ => value.to_owned(),
+    }
+}
+
+fn mode_label(value: &str) -> String {
+    match value {
+        "REIDENTIFY" => "重新识别".to_owned(),
+        "FILL_MISSING" => "补全缺失".to_owned(),
+        "FULL_REFRESH" => "刷新全部".to_owned(),
+        _ => value.to_owned(),
+    }
+}
+
+fn status_label(value: &str) -> String {
+    match value {
+        "PENDING" => "等待中".to_owned(),
+        "QUEUED" => "排队中".to_owned(),
+        "RUNNING" => "进行中".to_owned(),
+        "COMPLETED" => "已完成".to_owned(),
+        "COMPLETED_WITH_ISSUES" => "完成但有问题".to_owned(),
+        "FAILED" => "失败".to_owned(),
+        "CANCELLED" => "已取消".to_owned(),
+        "DEFERRED" => "已延后".to_owned(),
+        _ => value.to_owned(),
+    }
+}
+
+fn error_label(value: &str) -> String {
+    let label = match value {
+        "ITEM_FAILED" => "媒体项目处理失败",
+        "ITEM_ISSUES" => "部分媒体存在问题",
+        "DISPATCH_FAILED" => "任务未能加入执行队列，可重试",
+        "QUEUE_INCOMPLETE" => "任务未处理完即中断，可重试",
+        "DEFERRED_PROVIDER_UNAVAILABLE" => "元数据服务暂不可用",
+        "PARTIAL_PROVIDER_UNAVAILABLE" => "部分条目元数据服务暂不可用，已保留自动重试",
+        "LIBRARY_NOT_FOUND" => "媒体库不存在",
+        "JOB_NOT_FOUND" => "任务不存在",
+        "SCAN_IO" => "扫描文件时发生读写错误",
+        "INVALID_RELATIVE_PATH" => "媒体路径无效",
+        "STORAGE_ERROR" => "数据库操作失败",
+        _ => return value.to_owned(),
+    };
+    format!("{label}（{value}）")
+}
+
+fn is_test_notification(data: &Map<String, Value>) -> bool {
+    data.get("test").and_then(Value::as_bool) == Some(true)
+}
+
+fn playback_content(event_type: &str, data: &Map<String, Value>) -> String {
+    let position = number_value(data, "positionTicks");
+    let duration = number_value(data, "durationTicks");
+    let percentage = if duration > 0 {
+        ((position as f64 / duration as f64) * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let filled = ((percentage / 100.0) * 20.0).floor() as usize;
+    let progress = format!(
+        "{}{}{:.2}%",
+        "●".repeat(filled),
+        "○".repeat(20 - filled),
+        percentage
+    );
+    let container = string_value(data, "container").to_ascii_uppercase();
+    let method = match string_value(data, "playMethod")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "directstream" | "direct_stream" => "直接串流",
+        "remux" => "重封装",
+        "transcode" | "transcoding" => "转码",
+        _ => "直接播放",
+    };
+    let media = if container.is_empty() {
+        method.to_owned()
+    } else {
+        format!("{container} · {method}")
+    };
+    let mut lines = vec![progress, media];
+    if event_type == "PLAYBACK_STOPPED" {
+        let size = format_bytes(data.get("size").and_then(Value::as_i64));
+        let bitrate = format_bitrate(data.get("bitrate").and_then(Value::as_i64));
+        if size.is_some() || bitrate.is_some() {
+            lines.push(format!(
+                "大小：{} · {}",
+                size.unwrap_or_else(|| "未知".to_owned()),
+                bitrate.unwrap_or_else(|| "未知".to_owned())
+            ));
+        }
+    }
+    let client = string_value(data, "client");
+    let device_name = {
+        let value = string_value(data, "deviceName");
+        if value.is_empty() {
+            string_value(data, "deviceType")
+        } else {
+            value
+        }
+    };
+    let device = if client.eq_ignore_ascii_case(&device_name) {
+        client
+    } else if !client.is_empty() && !device_name.is_empty() {
+        format!("{client} · {device_name}")
+    } else if !client.is_empty() {
+        client
+    } else {
+        device_name
+    };
+    if !device.is_empty() {
+        lines.push(format!("设备：{device}"));
+    }
+    if event_type == "PLAYBACK_STOPPED" {
+        let ip = string_value(data, "remoteIp");
+        if !ip.is_empty() {
+            lines.push(format!("IP：{ip}"));
+        }
+        let overview = string_value(data, "overview");
+        if !overview.is_empty() {
+            lines.push(format!("简介：{overview}"));
+        }
+    }
+    lines.join("\n")
+}
+
+fn string_value(data: &Map<String, Value>, key: &str) -> String {
+    data.get(key)
+        .and_then(Value::as_str)
+        .map(bounded_display_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn number_value(data: &Map<String, Value>, key: &str) -> i64 {
+    data.get(key)
+        .and_then(Value::as_i64)
+        .unwrap_or_default()
+        .max(0)
+}
+
+fn number_value_optional(data: &Map<String, Value>, key: &str) -> Option<i64> {
+    data.get(key)
+        .and_then(Value::as_i64)
+        .map(|value| value.max(0))
+}
+
+fn append_optional_labeled_count(
+    lines: &mut Vec<String>,
+    label: &str,
+    data: &Map<String, Value>,
+    key: &str,
+) {
+    if let Some(value) = number_value_optional(data, key) {
+        lines.push(format!("{label}：{} 个", format_count(value)));
+    }
+}
+
+fn append_library_value(lines: &mut Vec<String>, data: &Map<String, Value>) {
+    let library_name = string_value(data, "libraryName");
+    let value = if library_name.is_empty() {
+        string_value(data, "libraryId")
+    } else {
+        library_name
+    };
+    if !value.is_empty() {
+        lines.push(format!("媒体库：{value}"));
+    }
+}
+
+fn append_mapped_value(
+    lines: &mut Vec<String>,
+    label: &str,
+    data: &Map<String, Value>,
+    key: &str,
+    mapper: fn(&str) -> String,
+) {
+    let value = string_value(data, key);
+    if !value.is_empty() {
+        lines.push(format!("{label}：{}", mapper(&value)));
+    }
+}
+
+fn format_count(value: i64) -> String {
+    let value = value.max(0).to_string();
+    let mut result = String::with_capacity(value.len() + value.len() / 3);
+    for (index, character) in value.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            result.push(',');
+        }
+        result.push(character);
+    }
+    result.chars().rev().collect()
+}
+
+fn format_duration(seconds: i64) -> String {
+    let seconds = seconds.max(0);
+    let days = seconds / 86_400;
+    let hours = (seconds % 86_400) / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let seconds = seconds % 60;
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{days}天"));
+    }
+    if hours > 0 || days > 0 {
+        parts.push(format!("{hours}小时"));
+    }
+    if minutes > 0 || hours > 0 || days > 0 {
+        parts.push(format!("{minutes}分"));
+    }
+    if seconds > 0 || parts.is_empty() {
+        parts.push(format!("{seconds}秒"));
+    }
+    parts.concat()
+}
+
+fn format_bytes(value: Option<i64>) -> Option<String> {
+    let value = value.filter(|value| *value >= 0)? as f64;
+    let (value, unit) = if value >= 1_000_000_000.0 {
+        (value / 1_000_000_000.0, "GB")
+    } else if value >= 1_000_000.0 {
+        (value / 1_000_000.0, "MB")
+    } else if value >= 1_000.0 {
+        (value / 1_000.0, "KB")
+    } else {
+        (value, "B")
+    };
+    Some(format_decimal(value, unit))
+}
+
+fn format_bitrate(value: Option<i64>) -> Option<String> {
+    let value = value.filter(|value| *value >= 0)? as f64 / 1_000_000.0;
+    Some(format_decimal(value, "Mbps"))
+}
+
+fn format_decimal(value: f64, unit: &str) -> String {
+    let text = format!("{value:.2}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned();
+    format!("{text}{unit}")
+}
+
+fn format_timestamp(timestamp: i64) -> String {
+    OffsetDateTime::from_unix_timestamp(timestamp)
+        .ok()
+        .and_then(|value| value.format(&Rfc3339).ok())
+        .unwrap_or_else(|| timestamp.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render;
+    use serde_json::{Value, json};
+
+    fn playback_title(data: Value) -> String {
+        let fields = data.as_object().expect("test fields should be an object");
+        render("PLAYBACK_STARTED", 1_700_000_000, fields)["title"]
+            .as_str()
+            .expect("rendered title should be text")
+            .to_owned()
+    }
+
+    #[test]
+    fn playback_title_orders_series_multi_season_and_episode() {
+        assert_eq!(
+            playback_title(json!({
+                "userName": "alice",
+                "itemTitle": "第二夜",
+                "seriesTitle": "九门",
+                "seasonNumber": 2,
+                "seriesSeasonCount": 2,
+            })),
+            "alice开始播放 九门 · 第2季 · 第二夜"
+        );
+    }
+
+    #[test]
+    fn playback_title_omits_single_season_number() {
+        assert_eq!(
+            playback_title(json!({
+                "userName": "alice",
+                "itemTitle": "下雨的街头又冷又难走",
+                "seriesTitle": "四月是你的谎言",
+                "seasonNumber": 1,
+                "seriesSeasonCount": 1,
+            })),
+            "alice开始播放 四月是你的谎言 · 下雨的街头又冷又难走"
+        );
+    }
+
+    #[test]
+    fn playback_title_labels_special_episodes() {
+        assert_eq!(
+            playback_title(json!({
+                "userName": "alice",
+                "itemTitle": "特别篇标题",
+                "seriesTitle": "九门",
+                "seasonNumber": 0,
+                "seriesSeasonCount": 2,
+            })),
+            "alice开始播放 九门 · 特别篇 · 特别篇标题"
+        );
+    }
+
+    #[test]
+    fn playback_title_falls_back_to_item_title_without_series() {
+        assert_eq!(
+            playback_title(json!({
+                "userName": "alice",
+                "itemTitle": "起源",
+            })),
+            "alice开始播放 起源"
+        );
+    }
+}
