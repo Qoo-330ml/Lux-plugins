@@ -233,6 +233,11 @@ fn build_payload(event: &Value, format: PayloadFormat) -> Result<Value, PluginRp
         }
         return Ok(Value::Object(payload));
     }
+    // The host builds the Emby object once for every Emby-compatible target; forward it unchanged so
+    // the plugin never re-renders payload text. The mapping below is only a fallback for older hosts.
+    if let Some(emby) = data.get("emby").filter(|value| value.is_object()) {
+        return Ok(emby.clone());
+    }
     let mut payload = Map::from_iter([
         ("Event".to_owned(), json!(emby_event_name(event_type))),
         (
@@ -586,6 +591,26 @@ mod tests {
         assert_eq!(payload["data"], Value::Null);
         assert_eq!(payload["libraryId"], "library-1");
         assert!(payload.get("secret").is_none());
+    }
+
+    #[test]
+    fn emby_payload_forwards_the_host_built_object() {
+        let mut event = playback_event();
+        event["data"]["emby"] = json!({
+            "Event": "playback.start",
+            "Title": "alice 在 Chrome 上开始播放 示例电影",
+            "Item": {"Id": "1", "Path": "/media/movies/示例电影.mkv"}
+        });
+        let payload = build_payload(&event, PayloadFormat::Emby).expect("payload");
+        assert_eq!(payload, event["data"]["emby"]);
+    }
+
+    #[test]
+    fn lux_payload_never_carries_the_emby_object() {
+        let mut event = playback_event();
+        event["data"]["emby"] = json!({"Event": "playback.start"});
+        let payload = build_payload(&event, PayloadFormat::Lux).expect("payload");
+        assert!(payload.get("emby").is_none());
     }
 
     #[test]

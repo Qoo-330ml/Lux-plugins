@@ -105,8 +105,8 @@ python3 scripts/generate-index.py --artifacts dist --existing index.json \
 provider-neutral event, including the unified `source`, `title`, `content`, `body`, and
 `timestamp` fields; the plugin validates the destination again, resolves all DNS addresses,
 blocks redirects and sends an HMAC-SHA256 signed JSON request. Its `payloadFormat` setting only
-selects the outer Lux-native or limited Emby-style transport shape; it does not generate or
-rewrite notification text. The target URL may reference Lux-generated fields with URL encoding.
+selects the outer Lux-native or Emby-style transport shape. In Emby mode the plugin forwards the
+Emby object that Lux builds once and carries in `data.emby`; it never renders notification text itself. The target URL may reference Lux-generated fields with URL encoding.
 Delivery queues, retry scheduling and secret storage remain owned by Lux, so this plugin has no
 access to the Lux configuration directory or database.
 
