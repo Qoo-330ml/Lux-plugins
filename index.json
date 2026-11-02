@@ -174,6 +174,114 @@
       ]
     },
     {
+      "id": "org.lux.notifier.bark",
+      "name": "Bark 推送",
+      "description": "通过 Bark App 把 Lux 通知推送到 iPhone",
+      "category": "NOTIFICATION",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "notification.send"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.bark/org.lux.notifier.bark-0.1.0-linux-aarch64.zip",
+          "sha256": "761f5d964de2a8476a1c377af5615544cc71f499ba55dc948446145ca3911648"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.bark/org.lux.notifier.bark-0.1.0-linux-x86_64.zip",
+          "sha256": "d183016cbb91d07d7457660ce870773be56788737f81a7f6e332a37f3338fc08"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.notifier.email",
+      "name": "SMTP 邮件通知",
+      "description": "通过 SMTP 服务器发送纯文本邮件通知",
+      "category": "NOTIFICATION",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "notification.send"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.email/org.lux.notifier.email-0.1.0-linux-aarch64.zip",
+          "sha256": "21a6a7a0e842bf0dd3c663aa20f913c1af0c430e90db89843cd396335eece383"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.email/org.lux.notifier.email-0.1.0-linux-x86_64.zip",
+          "sha256": "d994c7a61fc780e234fbc9ecbfef9dcd0a2cfab363743d95f13902dcc91969e6"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.notifier.feishu",
+      "name": "飞书 / Lark 通知",
+      "description": "通过飞书或 Lark 自定义机器人 Webhook 发送 Lux 通知",
+      "category": "NOTIFICATION",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "notification.send"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.feishu/org.lux.notifier.feishu-0.1.0-linux-aarch64.zip",
+          "sha256": "dd7b00dd7ec6bbc4774dfc764246d5e744d7a7e2dccf4b273c59f6034e1f0656"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.feishu/org.lux.notifier.feishu-0.1.0-linux-x86_64.zip",
+          "sha256": "c10cf7253ac868172ea4a9a4291cd37fb737c3aed66266af3a565af7f8c928de"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.notifier.wecom-app",
+      "name": "企业微信应用通知",
+      "description": "通过企业微信自建应用发送文本通知",
+      "category": "NOTIFICATION",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": null,
+      "aliases": [],
+      "capabilities": [
+        "notification.send"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.wecom-app/org.lux.notifier.wecom-app-0.1.0-linux-aarch64.zip",
+          "sha256": "749ab903f171dc6f7aad802ceba40ba3552c1e64436860d4c6cd3ff9d35d3619"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.notifier.wecom-app/org.lux.notifier.wecom-app-0.1.0-linux-x86_64.zip",
+          "sha256": "a3fd10e3cfd94bef271b48ac658409fb8a68c8776ca5f487de68a2a11749fc2d"
+        }
+      ]
+    },
+    {
       "id": "org.lux.qoo-ip138",
       "name": "ip138 IP归属地查询",
       "description": "通过 ipshudi.com 查询公网 IP 的归属地信息。",
