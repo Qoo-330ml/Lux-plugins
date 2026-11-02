@@ -404,7 +404,7 @@
       "name": "Webhook 通知器",
       "description": "将 Lux 核心生成的统一通知内容发送到 HTTP(S) Webhook。",
       "category": "NOTIFICATION",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "runtime": "process",
       "providerKey": null,
       "aliases": [],
@@ -415,14 +415,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.4-linux-aarch64.zip",
-          "sha256": "47be999f48a0081c59821a417b11a185b2cea95b957f31ed7bcd4424be70bbf1"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.5-linux-aarch64.zip",
+          "sha256": "ca68943c9f444a3242b75bfc200f3aa09455eba7dcafcafe2a09a4364f53cd41"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.4-linux-x86_64.zip",
-          "sha256": "2c613752aa583357866effe49c1d610098d2cf3d44c5fd1b52f7440c86b7095b"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.webhook/org.lux.webhook-0.1.5-linux-x86_64.zip",
+          "sha256": "47dcedbc1a5613673ffecd46dd51bde0f9328401a22d5f7af08cfdce7dae7985"
         }
       ]
     }
