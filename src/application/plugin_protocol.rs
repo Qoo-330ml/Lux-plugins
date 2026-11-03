@@ -35,6 +35,8 @@ pub const MEDIA_SOURCE_KIND_LOCAL_FILE: &str = "LOCAL_FILE";
 pub const MEDIA_SOURCE_KIND_STRM_URL: &str = "STRM_URL";
 pub const NOTIFICATION_SEND_CAPABILITY: &str = "notification.send";
 pub const DANMAKU_MATCH_CAPABILITY: &str = "danmaku.match";
+pub const DANMAKU_SEARCH_CAPABILITY: &str = "danmaku.search";
+pub const DANMAKU_FETCH_CAPABILITY: &str = "danmaku.fetch";
 pub const LOGIN_BACKGROUND_GET_CAPABILITY: &str = "login_background.get";
 pub const UNIFIED_LOGIN_BACKGROUND_PLUGIN_ID: &str = "org.lux.login-background";
 pub const LOGIN_BACKGROUND_CUSTOM_IMAGE_PATH: &str = "/api/v1/auth/login-background/custom-image";
@@ -45,6 +47,8 @@ pub const CHAPTER_DETECT_METHOD: &str = "chapters.detect";
 pub const CHAPTER_LOOKUP_METHOD: &str = "chapters.lookup";
 pub const NOTIFICATION_SEND_METHOD: &str = "notification.send";
 pub const DANMAKU_MATCH_METHOD: &str = "danmaku.match";
+pub const DANMAKU_SEARCH_METHOD: &str = "danmaku.search";
+pub const DANMAKU_FETCH_METHOD: &str = "danmaku.fetch";
 pub const LOGIN_BACKGROUND_GET_METHOD: &str = "login_background.get";
 pub const MIGRATION_TEST_METHOD: &str = "migration.test";
 pub const MIGRATION_LIST_USERS_METHOD: &str = "migration.list_users";
@@ -284,6 +288,34 @@ impl PluginManifest {
                 {
                     return Err(PluginManifestError::Invalid(
                         "danmaku plugins must declare danmaku.match".to_owned(),
+                    ));
+                }
+                for capability in &self.capabilities {
+                    if capability.starts_with("danmaku.")
+                        && !matches!(
+                            capability.as_str(),
+                            DANMAKU_MATCH_CAPABILITY
+                                | DANMAKU_SEARCH_CAPABILITY
+                                | DANMAKU_FETCH_CAPABILITY
+                        )
+                    {
+                        return Err(PluginManifestError::Invalid(format!(
+                            "unsupported danmaku capability: {capability}"
+                        )));
+                    }
+                }
+                let declares_search = self
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == DANMAKU_SEARCH_CAPABILITY);
+                let declares_fetch = self
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == DANMAKU_FETCH_CAPABILITY);
+                if declares_search != declares_fetch {
+                    return Err(PluginManifestError::Invalid(
+                        "danmaku plugins must declare danmaku.search and danmaku.fetch together"
+                            .to_owned(),
                     ));
                 }
             }
@@ -783,6 +815,134 @@ pub struct DanmakuMatchRpcResult {
     pub episode_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub xml_base64: Option<String>,
+}
+
+/// Longest manual search query the host forwards to a plugin, after trimming.
+pub const MAX_DANMAKU_SEARCH_QUERY_CHARS: usize = 200;
+/// Largest candidate count one manual search may request or return.
+pub const MAX_DANMAKU_SEARCH_LIMIT: u32 = 50;
+/// Largest episode list the host keeps from one search candidate.
+pub const MAX_DANMAKU_SEARCH_EPISODES: usize = 180;
+/// Largest provider anime/episode identifier the host accepts.
+pub const MAX_DANMAKU_IDENTIFIER_CHARS: usize = 128;
+/// Largest provider label the host accepts.
+pub const MAX_DANMAKU_PROVIDER_CHARS: usize = 64;
+/// Largest anime or episode title the host accepts.
+pub const MAX_DANMAKU_TITLE_CHARS: usize = 300;
+
+/// `danmaku.search` request. The host sends only the query text and the page bound.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuSearchRpcRequest {
+    pub query: String,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuSearchResult {
+    pub candidates: Vec<DanmakuSearchCandidate>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuSearchCandidate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    pub anime_id: String,
+    pub anime_title: String,
+    pub episodes: Vec<DanmakuSearchEpisode>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuSearchEpisode {
+    pub episode_id: String,
+    pub title: String,
+}
+
+/// `danmaku.fetch` request. `provider` is the opaque label a search result carried.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuFetchRpcRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    pub episode_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DanmakuFetchResult {
+    pub xml_base64: String,
+}
+
+/// Why a danmaku RPC request was refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DanmakuRpcValidationError {
+    /// The payload is not the documented JSON shape or an identifier is missing.
+    InvalidPayload,
+    /// A provider/anime/episode identifier is empty, too long or contains control characters.
+    InvalidIdentifier,
+}
+
+impl fmt::Display for DanmakuRpcValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidPayload => formatter.write_str("danmaku RPC payload is invalid"),
+            Self::InvalidIdentifier => formatter.write_str("danmaku RPC identifier is invalid"),
+        }
+    }
+}
+
+impl std::error::Error for DanmakuRpcValidationError {}
+
+impl DanmakuSearchRpcRequest {
+    /// Request validation identical to the host: the query is trimmed; both bounds are inclusive.
+    pub fn validate(self) -> Result<Self, DanmakuRpcValidationError> {
+        let query = self.query.trim();
+        if query.is_empty()
+            || query.chars().count() > MAX_DANMAKU_SEARCH_QUERY_CHARS
+            || query.chars().any(char::is_control)
+        {
+            return Err(DanmakuRpcValidationError::InvalidPayload);
+        }
+        if !(1..=MAX_DANMAKU_SEARCH_LIMIT).contains(&self.limit) {
+            return Err(DanmakuRpcValidationError::InvalidPayload);
+        }
+        Ok(Self {
+            query: query.to_owned(),
+            limit: self.limit,
+        })
+    }
+}
+
+impl DanmakuFetchRpcRequest {
+    /// Request validation identical to the host. An empty `provider` is treated as "not set".
+    pub fn validate(self) -> Result<Self, DanmakuRpcValidationError> {
+        let provider = match self.provider.as_deref() {
+            Some(provider) if !provider.trim().is_empty() => Some(
+                normalized_danmaku_identifier(provider, MAX_DANMAKU_PROVIDER_CHARS)
+                    .ok_or(DanmakuRpcValidationError::InvalidIdentifier)?,
+            ),
+            Some(_) | None => None,
+        };
+        let episode_id =
+            normalized_danmaku_identifier(&self.episode_id, MAX_DANMAKU_IDENTIFIER_CHARS)
+                .ok_or(DanmakuRpcValidationError::InvalidPayload)?;
+        Ok(Self {
+            provider,
+            episode_id,
+        })
+    }
+}
+
+/// Trims an opaque identifier and enforces the host length and character rules.
+pub fn normalized_danmaku_identifier(value: &str, max_chars: usize) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()
+        && trimmed.chars().count() <= max_chars
+        && !trimmed.chars().any(char::is_control))
+    .then(|| trimmed.to_owned())
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
