@@ -5,8 +5,11 @@ use luxd::application::{
     danmaku::{validate_danmaku_xml, validate_provider_base_url},
     media_matching::{MediaKind, normalize_title, parse_media_name},
     plugin_protocol::{
-        DANMAKU_MATCH_METHOD, DanmakuMatchRpcRequest, DanmakuMatchRpcResult, DanmakuMatchStatus,
-        PluginRequest, PluginResponse, PluginRpcError,
+        DANMAKU_FETCH_METHOD, DANMAKU_MATCH_METHOD, DANMAKU_SEARCH_METHOD, DanmakuFetchResult,
+        DanmakuFetchRpcRequest, DanmakuMatchRpcRequest, DanmakuMatchRpcResult, DanmakuMatchStatus,
+        DanmakuSearchCandidate, DanmakuSearchEpisode, DanmakuSearchResult, DanmakuSearchRpcRequest,
+        MAX_DANMAKU_IDENTIFIER_CHARS, MAX_DANMAKU_SEARCH_EPISODES, MAX_DANMAKU_TITLE_CHARS,
+        PluginRequest, PluginResponse, PluginRpcError, normalized_danmaku_identifier,
     },
 };
 use reqwest::{Client, StatusCode, Url};
@@ -16,6 +19,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 const PLUGIN_ID: &str = "org.lux.danmaku";
 const PLUGIN_NAME: &str = "弹幕匹配";
 const MAX_RPC_XML_BYTES: usize = 3 * 1024 * 1024;
+/// Budget for one serialized search answer, kept below the host's 4 MiB plugin response line.
+const MAX_SEARCH_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
+/// The only provider label this plugin serves; it is echoed on search candidates.
+const PROVIDER_LABEL: &str = "dandanplay";
 const MAX_PROVIDER_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -124,6 +131,63 @@ impl DanmakuProviderClient {
         }))
     }
 
+    /// Dandanplay-compatible episode search used by the manual match picker.
+    ///
+    /// A missing endpoint is an empty answer, not an error, so the picker can say "no results".
+    /// Anime or episodes that do not fit the host contract are dropped one by one instead of
+    /// failing the whole answer.
+    async fn search_episodes(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<DanmakuSearchResult, DanmakuProviderError> {
+        let mut url = self.api_url("search/episodes")?;
+        url.query_pairs_mut().append_pair("anime", query);
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| DanmakuProviderError::Unavailable)?;
+        let body = match self.read_response(response).await {
+            Ok(body) => body,
+            Err(DanmakuProviderError::Unsupported) => {
+                return Ok(DanmakuSearchResult {
+                    candidates: Vec::new(),
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        let value: Value =
+            serde_json::from_slice(&body).map_err(|_| DanmakuProviderError::InvalidResponse)?;
+        let animes = value
+            .get("animes")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let mut candidates = Vec::new();
+        for anime in animes {
+            if candidates.len() >= limit {
+                break;
+            }
+            if let Some(candidate) = search_candidate(anime) {
+                candidates.push(candidate);
+            }
+        }
+        let mut result = DanmakuSearchResult { candidates };
+        // Stay inside the host's response line even for a very wide answer.
+        while serde_json::to_vec(&result)
+            .map_err(|_| DanmakuProviderError::InvalidResponse)?
+            .len()
+            > MAX_SEARCH_RESPONSE_BYTES
+        {
+            if result.candidates.pop().is_none() {
+                break;
+            }
+        }
+        Ok(result)
+    }
+
     async fn fetch_episode_xml(&self, episode_id: &str) -> Result<Vec<u8>, DanmakuProviderError> {
         if episode_id.trim().is_empty() || episode_id.chars().count() > 256 {
             return Err(DanmakuProviderError::InvalidRequest);
@@ -222,6 +286,47 @@ fn json_string(value: Option<&Value>) -> Option<String> {
                 .or_else(|| value.as_i64().map(|value| value.to_string()))
         })
         .filter(|value| !value.trim().is_empty())
+}
+
+fn search_candidate(anime: &Value) -> Option<DanmakuSearchCandidate> {
+    let anime_id = normalized_danmaku_identifier(
+        &json_string(anime.get("animeId"))?,
+        MAX_DANMAKU_IDENTIFIER_CHARS,
+    )?;
+    let anime_title = normalized_danmaku_identifier(
+        &json_string(anime.get("animeTitle"))?,
+        MAX_DANMAKU_TITLE_CHARS,
+    )?;
+    let episodes: Vec<DanmakuSearchEpisode> = anime
+        .get("episodes")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|episode| {
+            Some(DanmakuSearchEpisode {
+                episode_id: normalized_danmaku_identifier(
+                    &json_string(episode.get("episodeId"))?,
+                    MAX_DANMAKU_IDENTIFIER_CHARS,
+                )?,
+                title: normalized_danmaku_identifier(
+                    &json_string(episode.get("episodeTitle"))?,
+                    MAX_DANMAKU_TITLE_CHARS,
+                )?,
+            })
+        })
+        .take(MAX_DANMAKU_SEARCH_EPISODES)
+        .collect();
+    // A candidate without a pickable episode is useless to the manual picker.
+    if episodes.is_empty() {
+        return None;
+    }
+    Some(DanmakuSearchCandidate {
+        provider: Some(PROVIDER_LABEL.to_owned()),
+        anime_id,
+        anime_title,
+        episodes,
+    })
 }
 
 fn find_episode_match(
@@ -343,7 +448,7 @@ async fn handle_request(request: &PluginRequest) -> PluginResponse {
                 "id": PLUGIN_ID,
                 "name": PLUGIN_NAME,
                 "apiVersion": 1,
-                "capabilities": ["danmaku.match"],
+                "capabilities": ["danmaku.match", "danmaku.search", "danmaku.fetch"],
                 "supportedItemTypes": []
             }),
         ),
@@ -366,6 +471,47 @@ async fn handle_request(request: &PluginRequest) -> PluginResponse {
                     request,
                     "PLUGIN_INVALID_REQUEST",
                     "danmaku match request is invalid",
+                ),
+            }
+        }
+        DANMAKU_SEARCH_METHOD => {
+            match serde_json::from_value::<DanmakuSearchRpcRequest>(request.params.clone())
+                .ok()
+                .and_then(|params| params.validate().ok())
+            {
+                Some(params) => match search_danmaku(params).await {
+                    Ok(value) => result(request, value),
+                    Err(error) => {
+                        error_response(request, provider_error_code(&error), error_message(&error))
+                    }
+                },
+                None => error_response(
+                    request,
+                    "PLUGIN_INVALID_REQUEST",
+                    "danmaku search request is invalid",
+                ),
+            }
+        }
+        DANMAKU_FETCH_METHOD => {
+            match serde_json::from_value::<DanmakuFetchRpcRequest>(request.params.clone())
+                .ok()
+                .and_then(|params| params.validate().ok())
+                .filter(|params| {
+                    params
+                        .provider
+                        .as_deref()
+                        .is_none_or(|provider| provider == PROVIDER_LABEL)
+                }) {
+                Some(params) => match fetch_danmaku(params).await {
+                    Ok(value) => result(request, value),
+                    Err(error) => {
+                        error_response(request, provider_error_code(&error), error_message(&error))
+                    }
+                },
+                None => error_response(
+                    request,
+                    "PLUGIN_INVALID_REQUEST",
+                    "danmaku fetch request is invalid",
                 ),
             }
         }
@@ -412,6 +558,32 @@ async fn match_danmaku(request: DanmakuMatchRpcRequest) -> Result<Value, Danmaku
         anime_id: matched.anime_id,
         episode_id: Some(matched.episode_id),
         xml_base64: Some(BASE64.encode(xml)),
+    })
+    .map_err(|_| DanmakuProviderError::InvalidResponse)
+}
+
+fn configured_provider() -> Result<DanmakuProviderClient, DanmakuProviderError> {
+    let provider_url = provider_url().ok_or(DanmakuProviderError::InvalidRequest)?;
+    let proxy_url = std::env::var("LUX_PROXY_URL").ok();
+    DanmakuProviderClient::new(&provider_url, proxy_url.as_deref())
+}
+
+async fn search_danmaku(request: DanmakuSearchRpcRequest) -> Result<Value, DanmakuProviderError> {
+    let provider = configured_provider()?;
+    let result = provider
+        .search_episodes(&request.query, request.limit as usize)
+        .await?;
+    serde_json::to_value(result).map_err(|_| DanmakuProviderError::InvalidResponse)
+}
+
+async fn fetch_danmaku(request: DanmakuFetchRpcRequest) -> Result<Value, DanmakuProviderError> {
+    let provider = configured_provider()?;
+    let xml = provider.fetch_episode_xml(&request.episode_id).await?;
+    if xml.len() > MAX_RPC_XML_BYTES {
+        return Err(DanmakuProviderError::ResponseTooLarge);
+    }
+    serde_json::to_value(DanmakuFetchResult {
+        xml_base64: BASE64.encode(xml),
     })
     .map_err(|_| DanmakuProviderError::InvalidResponse)
 }
