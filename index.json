@@ -371,7 +371,7 @@
       "name": "TMDb 元数据插件",
       "description": "从 TMDb 提供 Emby 风格电影、剧集和图片元数据。",
       "category": "SCRAPER",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "runtime": "process",
       "providerKey": "tmdb",
       "aliases": [
@@ -390,14 +390,45 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.12-linux-aarch64.zip",
-          "sha256": "4fa6f3cb93509b4fa52e1e345ac442eb6d573a5f6b12cec49ad048b7efb01278"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.13-linux-aarch64.zip",
+          "sha256": "09eabe9efb7004ff696379e68c178c14122e955e4e45ef340efee8ce17178539"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.12-linux-x86_64.zip",
-          "sha256": "78db9b7d0bdff0cc38f16b80d0adb453c6d4322764919db403a4e86f378060af"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.tmdb/org.lux.tmdb-0.1.13-linux-x86_64.zip",
+          "sha256": "a55a3dbba071494fd9f9e25c483674d8107de5738fad0b9a057f9a06bee3213b"
+        }
+      ]
+    },
+    {
+      "id": "org.lux.trakt-ratings",
+      "name": "Trakt 多源评分",
+      "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议。本插件只做查询：不读取媒体库文件、不写 NFO、不触发媒体库刷新，这三件事由宿主完成。",
+      "category": "SCRAPER",
+      "version": "0.1.0",
+      "runtime": "process",
+      "providerKey": "trakt",
+      "aliases": [
+        "trakt"
+      ],
+      "capabilities": [
+        "ratings.lookup",
+        "ratings.search",
+        "ratings.batch"
+      ],
+      "packages": [
+        {
+          "platform": "linux",
+          "arch": "aarch64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.0-linux-aarch64.zip",
+          "sha256": "6409815a98fefcc4795eccda71c7d477132d113ccf8e6bd70989c4b21439d93d"
+        },
+        {
+          "platform": "linux",
+          "arch": "x86_64",
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.0-linux-x86_64.zip",
+          "sha256": "9e2001e9c22ded820b3c374930a1b1f7057ea4a6f3e8729d8e529ab24dc0fdd5"
         }
       ]
     },
