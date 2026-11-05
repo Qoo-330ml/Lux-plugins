@@ -1478,6 +1478,8 @@ pub struct TmdbImageReference {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub vote_average: Option<f64>,
+    #[serde(default)]
+    pub vote_count: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]

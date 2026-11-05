@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     env,
     path::PathBuf,
@@ -16,10 +17,11 @@ use luxd::application::{
     },
     tmdb::{
         TmdbAlternativeTitlesResponse, TmdbClient, TmdbCollectionDetails,
-        TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImagesResponse,
-        TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails, TmdbPersonSearchResponse,
-        TmdbSeasonDetails, TmdbSeriesDetails, TmdbTranslation, TmdbTranslationData,
-        TmdbTranslationsResponse, TmdbTvSearchResponse, TmdbVideosResponse, fill_if_empty,
+        TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImageReference,
+        TmdbImagesResponse, TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails,
+        TmdbPersonSearchResponse, TmdbSeasonDetails, TmdbSeriesDetails, TmdbTranslation,
+        TmdbTranslationData, TmdbTranslationsResponse, TmdbTvSearchResponse, TmdbVideosResponse,
+        fill_if_empty,
     },
 };
 use serde::Deserialize;
@@ -39,6 +41,16 @@ const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CACHE_CAPACITY: usize = 256;
 const MAX_RPC_CONCURRENCY: usize = 16;
 
+// Suggested minimum image widths in pixels for each TMDb image kind. These
+// defaults are not confirmed against real TMDb width distributions yet; they
+// are deliberately kept in one place so they can be tuned later. The manifest
+// defaults in manifests/org.lux.tmdb.json must match these constants.
+const DEFAULT_POSTER_MIN_WIDTH: i64 = 1000;
+const DEFAULT_BACKDROP_MIN_WIDTH: i64 = 1920;
+const DEFAULT_STILL_MIN_WIDTH: i64 = 1280;
+const DEFAULT_LOGO_MIN_WIDTH: i64 = 500;
+const DEFAULT_PROFILE_MIN_WIDTH: i64 = 300;
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TmdbPluginConfig {
@@ -54,12 +66,44 @@ struct TmdbPluginConfig {
     title_alias_replacement_enabled: Option<bool>,
     #[serde(default)]
     fallback_languages: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_min_width")]
+    poster_min_width: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_min_width")]
+    backdrop_min_width: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_min_width")]
+    still_min_width: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_min_width")]
+    logo_min_width: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_min_width")]
+    profile_min_width: Option<i64>,
     #[serde(default)]
     alternate_api_enabled: Option<bool>,
     #[serde(default)]
     api_base_url_preset: Option<String>,
     #[serde(default)]
     api_base_url: Option<String>,
+}
+
+/// Parses a configured minimum image width. Hosts may store select values as
+/// numbers or numeric strings; anything else falls back to the per-kind
+/// default instead of failing the whole plugin config.
+fn deserialize_min_width<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(min_width_from_json(&value))
+}
+
+fn min_width_from_json(value: &Value) -> Option<i64> {
+    let width = match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|width| i64::try_from(width).ok())),
+        Value::String(text) => text.trim().parse().ok(),
+        _ => None,
+    }?;
+    (width >= 0).then_some(width)
 }
 
 type InflightMap = StdMutex<HashMap<String, Arc<Notify>>>;
@@ -837,6 +881,7 @@ async fn metadata(params: Value) -> Result<Value, PluginRpcError> {
 async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
     let request = parse_request(params)?;
     let languages = metadata_languages().await;
+    let config = plugin_config().await;
     let id = request
         .provider_id()
         .ok_or_else(|| invalid("providerId is required"))?;
@@ -852,7 +897,7 @@ async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
             }
             Ok(json!({
                 "metadata": movie_details(details.clone()),
-                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "images": {"images": image_results(details.images.unwrap_or_default(), &languages, config)},
                 "credits": credits_result(details.credits.unwrap_or_default()),
                 "externalIds": {"providerIds": provider_ids},
                 "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
@@ -869,7 +914,7 @@ async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
             }
             Ok(json!({
                 "metadata": series_details(details.clone()),
-                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "images": {"images": image_results(details.images.unwrap_or_default(), &languages, config)},
                 "credits": credits_result(details.credits.unwrap_or_default()),
                 "externalIds": {"providerIds": provider_ids},
                 "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
@@ -1028,7 +1073,9 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
             });
         }
     };
-    Ok(json!({"images": image_results(images)}))
+    let languages = metadata_languages().await;
+    let config = plugin_config().await;
+    Ok(json!({"images": image_results(images, &languages, config)}))
 }
 
 async fn trailers(params: Value) -> Result<Value, PluginRpcError> {
@@ -1425,74 +1472,175 @@ fn credits_result(response: luxd::application::tmdb::TmdbCreditsResponse) -> Val
     })
 }
 
-fn image_results(response: TmdbImagesResponse) -> Vec<Value> {
-    let mut images = Vec::new();
-    images.extend(response.posters.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Primary",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ImageKind {
+    Poster,
+    Backdrop,
+    Still,
+    Logo,
+    Profile,
+}
+
+impl ImageKind {
+    fn output_type(self) -> &'static str {
+        match self {
+            Self::Poster | Self::Profile => "Primary",
+            Self::Backdrop | Self::Still => "Backdrop",
+            Self::Logo => "Logo",
+        }
+    }
+}
+
+fn default_image_min_width(kind: ImageKind) -> i64 {
+    match kind {
+        ImageKind::Poster => DEFAULT_POSTER_MIN_WIDTH,
+        ImageKind::Backdrop => DEFAULT_BACKDROP_MIN_WIDTH,
+        ImageKind::Still => DEFAULT_STILL_MIN_WIDTH,
+        ImageKind::Logo => DEFAULT_LOGO_MIN_WIDTH,
+        ImageKind::Profile => DEFAULT_PROFILE_MIN_WIDTH,
+    }
+}
+
+/// Builds the ordered language layers used to rank TMDb images.
+///
+/// The plugin's metadata language order comes from `metadata_languages()`
+/// (preferred language first, then the configured fallback order). TMDb image
+/// metadata only carries an ISO 639-1 language (`iso_639_1`), no region, so
+/// the existing locale matching has to be adapted: each configured locale is
+/// reduced to its primary language via the same `locale_parts()` helper, and
+/// region variants of one language collapse into one image layer (the first
+/// configured locale represents it). This mirrors the existing "one language
+/// group" rule; `chinese_script_group()` cannot be applied here because the
+/// image payload has no region to distinguish Simplified from Traditional.
+fn image_language_layers(languages: &[String]) -> Vec<String> {
+    let mut layers = Vec::new();
+    for language in languages {
+        let Some((language, _region)) = locale_parts(language) else {
+            continue;
+        };
+        let language = language.trim().to_ascii_lowercase();
+        if language.is_empty() || layers.iter().any(|layer| layer == &language) {
+            continue;
+        }
+        layers.push(language);
+    }
+    layers
+}
+
+/// Returns the layer index for an image language. Configured languages keep
+/// their order, then images without a language come next, then other
+/// languages (`layers.len() + 1`).
+fn image_language_layer(language: &str, layers: &[String]) -> usize {
+    let language = language.trim();
+    if language.is_empty() {
+        return layers.len();
+    }
+    layers
+        .iter()
+        .position(|layer| layer.eq_ignore_ascii_case(language))
+        .unwrap_or(layers.len() + 1)
+}
+
+/// Orders one image kind for the host. Language layers always win first; a
+/// later layer only moves up when every earlier layer is empty. Inside a
+/// layer, images at or above the minimum width come first from narrowest to
+/// widest, then shortfall images from widest to narrowest, then images without
+/// a width. Equal widths fall back to rating, votes and finally TMDb order.
+fn rank_images(
+    kind: ImageKind,
+    images: Vec<TmdbImageReference>,
+    languages: &[String],
+    min_width: Option<i64>,
+) -> Vec<TmdbImageReference> {
+    let min_width = min_width.unwrap_or_else(|| default_image_min_width(kind));
+    let layers = image_language_layers(languages);
+    let mut ranked = images.into_iter().enumerate().collect::<Vec<_>>();
+    ranked.sort_by(|(a_index, a), (b_index, b)| {
+        image_language_layer(a.iso_639_1.as_deref().unwrap_or_default(), &layers)
+            .cmp(&image_language_layer(
+                b.iso_639_1.as_deref().unwrap_or_default(),
+                &layers,
+            ))
+            .then_with(|| compare_image_widths(a, b, min_width))
+            .then_with(|| compare_image_ratings(a, b))
+            .then_with(|| a_index.cmp(b_index))
+    });
+    ranked.into_iter().map(|(_, image)| image).collect()
+}
+
+fn compare_image_widths(
+    a: &TmdbImageReference,
+    b: &TmdbImageReference,
+    min_width: i64,
+) -> Ordering {
+    let a_qualifies = a.width.is_some_and(|width| i64::from(width) >= min_width);
+    let b_qualifies = b.width.is_some_and(|width| i64::from(width) >= min_width);
+    match (a_qualifies, b_qualifies) {
+        (true, true) => a.width.cmp(&b.width),
+        (false, false) => match (a.width, b.width) {
+            (Some(a_width), Some(b_width)) => b_width.cmp(&a_width),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        },
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+    }
+}
+
+fn compare_image_ratings(a: &TmdbImageReference, b: &TmdbImageReference) -> Ordering {
+    match (a.vote_average, b.vote_average) {
+        (Some(a_rating), Some(b_rating)) => b_rating.total_cmp(&a_rating),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+    .then_with(|| match (a.vote_count, b.vote_count) {
+        (Some(a_votes), Some(b_votes)) => b_votes.cmp(&a_votes),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    })
+}
+
+fn image_results(
+    response: TmdbImagesResponse,
+    languages: &[String],
+    config: &TmdbPluginConfig,
+) -> Vec<Value> {
+    let groups = [
+        (ImageKind::Poster, response.posters, config.poster_min_width),
+        (
+            ImageKind::Backdrop,
+            response.backdrops,
+            config.backdrop_min_width,
+        ),
+        (ImageKind::Still, response.stills, config.still_min_width),
+        (
+            ImageKind::Profile,
+            response.profiles,
+            config.profile_min_width,
+        ),
+        (ImageKind::Logo, response.logos, config.logo_min_width),
+    ];
+    let mut results = Vec::new();
+    for (kind, images, min_width) in groups {
+        for image in rank_images(kind, images, languages, min_width) {
+            let Some(path) = image.file_path.as_deref() else {
+                continue;
+            };
+            results.push(json!({
+                "Type": kind.output_type(),
+                "Url": image_url(path),
+                "ThumbnailUrl": image_url(path),
                 "Language": image.iso_639_1,
                 "Width": image.width,
                 "Height": image.height,
                 "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.backdrops.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Backdrop",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.stills.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Backdrop",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.profiles.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Primary",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.logos.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Logo",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images
+            }));
+        }
+    }
+    results
 }
 
 fn requests_all_image_languages(request: &MetadataRequest) -> bool {
@@ -1883,5 +2031,423 @@ mod tests {
         let owner = InflightOwner::new(map, "cancelled".to_owned(), notify);
         drop(owner);
         assert!(lock_inflight(map).is_empty());
+    }
+
+    fn image_reference(
+        path: &str,
+        language: Option<&str>,
+        width: Option<i32>,
+        rating: Option<f64>,
+        votes: Option<i64>,
+    ) -> TmdbImageReference {
+        TmdbImageReference {
+            file_path: Some(path.to_owned()),
+            iso_639_1: language.map(str::to_owned),
+            width,
+            height: width.map(|width| width * 3 / 2),
+            vote_average: rating,
+            vote_count: votes,
+        }
+    }
+
+    fn ranked_paths(
+        kind: ImageKind,
+        images: Vec<TmdbImageReference>,
+        languages: &[&str],
+        min_width: Option<i64>,
+    ) -> Vec<String> {
+        let languages = languages
+            .iter()
+            .map(|language| (*language).to_owned())
+            .collect::<Vec<_>>();
+        rank_images(kind, images, &languages, min_width)
+            .into_iter()
+            .filter_map(|image| image.file_path)
+            .collect()
+    }
+
+    fn result_paths(results: &[Value]) -> Vec<String> {
+        results
+            .iter()
+            .map(|image| {
+                image["Url"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .trim_start_matches("https://image.tmdb.org/t/p/original")
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rank_images_puts_smallest_qualifying_width_first_then_widest_shortfall() {
+        let images = vec![
+            image_reference("/short-900.jpg", None, Some(900), None, None),
+            image_reference("/wide-3000.jpg", None, Some(3000), None, None),
+            image_reference("/short-500.jpg", None, Some(500), None, None),
+            image_reference("/qualify-1200.jpg", None, Some(1200), None, None),
+            image_reference("/qualify-2000.jpg", None, Some(2000), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(1000)),
+            [
+                "/qualify-1200.jpg",
+                "/qualify-2000.jpg",
+                "/wide-3000.jpg",
+                "/short-900.jpg",
+                "/short-500.jpg"
+            ]
+        );
+    }
+
+    #[test]
+    fn rank_images_orders_shortfall_from_widest_to_narrowest() {
+        let images = vec![
+            image_reference("/width-500.jpg", None, Some(500), None, None),
+            image_reference("/width-900.jpg", None, Some(900), None, None),
+            image_reference("/width-700.jpg", None, Some(700), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(1000)),
+            ["/width-900.jpg", "/width-700.jpg", "/width-500.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_breaks_width_ties_by_rating_then_vote_count_then_source_order() {
+        let images = vec![
+            image_reference("/a.jpg", None, Some(1000), Some(5.0), Some(10)),
+            image_reference("/b.jpg", None, Some(1000), Some(7.0), Some(1)),
+            image_reference("/c.jpg", None, Some(1000), Some(7.0), Some(20)),
+            image_reference("/d.jpg", None, Some(1000), Some(7.0), Some(20)),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(1000)),
+            ["/c.jpg", "/d.jpg", "/b.jpg", "/a.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_keeps_source_order_when_ranking_keys_match() {
+        let images = vec![
+            image_reference("/first.jpg", None, Some(1000), Some(7.0), Some(20)),
+            image_reference("/second.jpg", None, Some(1000), Some(7.0), Some(20)),
+            image_reference("/third.jpg", None, Some(1000), Some(7.0), Some(20)),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(1000)),
+            ["/first.jpg", "/second.jpg", "/third.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_keeps_preferred_language_layer_first_even_when_widths_fall_short() {
+        let images = vec![
+            image_reference("/english-4000.jpg", Some("en"), Some(4000), None, None),
+            image_reference("/chinese-100.jpg", Some("zh"), Some(100), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &["zh-CN", "en-US"], Some(10_000)),
+            ["/chinese-100.jpg", "/english-4000.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_promotes_fallback_language_when_preferred_layer_is_empty() {
+        let images = vec![
+            image_reference("/japanese-9000.jpg", Some("ja"), Some(9000), None, None),
+            image_reference("/english-800.jpg", Some("en"), Some(800), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &["zh-CN", "en-US"], Some(1000)),
+            ["/english-800.jpg", "/japanese-9000.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_places_language_less_images_after_configured_languages_and_others_last() {
+        let images = vec![
+            image_reference("/japanese-100.jpg", Some("ja"), Some(100), None, None),
+            image_reference("/neutral-200.jpg", None, Some(200), None, None),
+            image_reference("/english-300.jpg", Some("en"), Some(300), None, None),
+            image_reference("/chinese-400.jpg", Some("zh"), Some(400), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &["zh-CN", "en-US"], Some(1000)),
+            [
+                "/chinese-400.jpg",
+                "/english-300.jpg",
+                "/neutral-200.jpg",
+                "/japanese-100.jpg"
+            ]
+        );
+    }
+
+    #[test]
+    fn image_language_layers_merge_region_variants_and_preserve_configured_order() {
+        assert_eq!(
+            image_language_layers(&[
+                "zh-TW".to_owned(),
+                "zh-SG".to_owned(),
+                "en-GB".to_owned(),
+                "en-US".to_owned()
+            ]),
+            ["zh", "en"]
+        );
+        assert_eq!(image_language_layers(&["ZH-cn".to_owned()]), ["zh"]);
+    }
+
+    #[test]
+    fn image_language_matching_is_case_insensitive_and_region_free() {
+        assert_eq!(
+            image_language_layer("ZH", &image_language_layers(&["zh-CN".to_owned()])),
+            0
+        );
+        assert_eq!(
+            image_language_layer("en", &image_language_layers(&["zh-CN".to_owned()])),
+            2
+        );
+        assert_eq!(
+            image_language_layer("", &image_language_layers(&["zh-CN".to_owned()])),
+            1
+        );
+    }
+
+    #[test]
+    fn rank_images_without_minimum_width_orders_by_width_ascending() {
+        let images = vec![
+            image_reference("/width-780.jpg", None, Some(780), None, None),
+            image_reference("/width-500.jpg", None, Some(500), None, None),
+            image_reference("/width-1000.jpg", None, Some(1000), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(0)),
+            ["/width-500.jpg", "/width-780.jpg", "/width-1000.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_places_images_without_width_after_shortfall() {
+        let images = vec![
+            image_reference("/width-800.jpg", None, Some(800), None, None),
+            image_reference("/no-width.jpg", None, None, None, None),
+            image_reference("/qualify-1200.jpg", None, Some(1200), None, None),
+        ];
+
+        assert_eq!(
+            ranked_paths(ImageKind::Poster, images, &[], Some(1000)),
+            ["/qualify-1200.jpg", "/width-800.jpg", "/no-width.jpg"]
+        );
+    }
+
+    #[test]
+    fn rank_images_keeps_the_complete_ordered_list_for_multi_image_types() {
+        let images = vec![
+            image_reference("/backdrop-6000.jpg", None, Some(6000), None, None),
+            image_reference("/backdrop-1000.jpg", None, Some(1000), None, None),
+            image_reference("/backdrop-3000.jpg", None, Some(3000), None, None),
+            image_reference("/backdrop-2000.jpg", None, Some(2000), None, None),
+            image_reference("/backdrop-5000.jpg", None, Some(5000), None, None),
+            image_reference("/backdrop-4000.jpg", None, Some(4000), None, None),
+        ];
+
+        let ranked = ranked_paths(ImageKind::Backdrop, images, &[], Some(1920));
+        assert_eq!(ranked.len(), 6);
+        assert_eq!(
+            ranked,
+            [
+                "/backdrop-2000.jpg",
+                "/backdrop-3000.jpg",
+                "/backdrop-4000.jpg",
+                "/backdrop-5000.jpg",
+                "/backdrop-6000.jpg",
+                "/backdrop-1000.jpg"
+            ]
+        );
+    }
+
+    #[test]
+    fn image_results_apply_the_minimum_width_configured_per_image_kind() {
+        let config = TmdbPluginConfig {
+            poster_min_width: Some(2000),
+            backdrop_min_width: Some(0),
+            still_min_width: Some(1280),
+            logo_min_width: Some(500),
+            profile_min_width: Some(300),
+            ..TmdbPluginConfig::default()
+        };
+        let response = TmdbImagesResponse {
+            posters: vec![
+                image_reference("/poster-1000.jpg", None, Some(1000), None, None),
+                image_reference("/poster-2000.jpg", None, Some(2000), None, None),
+            ],
+            backdrops: vec![
+                image_reference("/backdrop-1920.jpg", None, Some(1920), None, None),
+                image_reference("/backdrop-780.jpg", None, Some(780), None, None),
+            ],
+            stills: vec![
+                image_reference("/still-640.jpg", None, Some(640), None, None),
+                image_reference("/still-1280.jpg", None, Some(1280), None, None),
+            ],
+            logos: vec![
+                image_reference("/logo-300.jpg", None, Some(300), None, None),
+                image_reference("/logo-1000.jpg", None, Some(1000), None, None),
+            ],
+            profiles: vec![
+                image_reference("/profile-185.jpg", None, Some(185), None, None),
+                image_reference("/profile-300.jpg", None, Some(300), None, None),
+            ],
+        };
+
+        let results = image_results(response, &[], &config);
+
+        assert_eq!(
+            result_paths(&results),
+            [
+                "/poster-2000.jpg",
+                "/poster-1000.jpg",
+                "/backdrop-780.jpg",
+                "/backdrop-1920.jpg",
+                "/still-1280.jpg",
+                "/still-640.jpg",
+                "/profile-300.jpg",
+                "/profile-185.jpg",
+                "/logo-1000.jpg",
+                "/logo-300.jpg"
+            ]
+        );
+        let types = results
+            .iter()
+            .map(|image| image["Type"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            types,
+            [
+                "Primary", "Primary", "Backdrop", "Backdrop", "Backdrop", "Backdrop", "Primary",
+                "Primary", "Logo", "Logo"
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_or_invalid_minimum_widths_fall_back_to_defaults() {
+        assert_eq!(default_image_min_width(ImageKind::Poster), 1000);
+        assert_eq!(default_image_min_width(ImageKind::Backdrop), 1920);
+        assert_eq!(default_image_min_width(ImageKind::Still), 1280);
+        assert_eq!(default_image_min_width(ImageKind::Logo), 500);
+        assert_eq!(default_image_min_width(ImageKind::Profile), 300);
+
+        let parsed: TmdbPluginConfig = serde_json::from_value(json!({
+            "apiKey": "key",
+            "posterMinWidth": "not-a-number",
+            "backdropMinWidth": -1,
+            "stillMinWidth": 700,
+            "logoMinWidth": null
+        }))
+        .expect("invalid minimum widths should not fail the whole plugin config");
+
+        assert_eq!(parsed.api_key.as_deref(), Some("key"));
+        assert_eq!(parsed.poster_min_width, None);
+        assert_eq!(parsed.backdrop_min_width, None);
+        assert_eq!(parsed.still_min_width, Some(700));
+        assert_eq!(parsed.logo_min_width, None);
+    }
+
+    #[test]
+    fn image_results_emit_original_urls_without_fallback_urls() {
+        let response = TmdbImagesResponse {
+            posters: vec![image_reference(
+                "/poster.jpg",
+                Some("en"),
+                Some(2000),
+                Some(7.0),
+                Some(3),
+            )],
+            ..TmdbImagesResponse::default()
+        };
+
+        let results = image_results(
+            response,
+            &["en-US".to_owned()],
+            &TmdbPluginConfig::default(),
+        );
+        let image = &results[0];
+
+        assert_eq!(
+            image["Url"],
+            "https://image.tmdb.org/t/p/original/poster.jpg"
+        );
+        assert_eq!(
+            image["ThumbnailUrl"],
+            "https://image.tmdb.org/t/p/original/poster.jpg"
+        );
+        assert!(image.get("FallbackUrls").is_none());
+        assert_eq!(image["Width"], 2000);
+        assert_eq!(image["Height"], 3000);
+        assert_eq!(image["Language"], "en");
+        assert_eq!(image["ProviderName"], "Tmdb");
+    }
+
+    #[test]
+    fn collection_images_keep_single_original_paths_without_filtering() {
+        let details = TmdbCollectionDetails {
+            id: 1,
+            name: Some("Collection".to_owned()),
+            overview: None,
+            poster_path: Some("/collection-poster.jpg".to_owned()),
+            backdrop_path: Some("/collection-backdrop.jpg".to_owned()),
+            parts: Vec::new(),
+        };
+
+        let results = collection_image_results(details);
+
+        assert_eq!(
+            result_paths(&results),
+            ["/collection-poster.jpg", "/collection-backdrop.jpg"]
+        );
+    }
+
+    #[test]
+    fn manifest_min_width_defaults_match_plugin_constants() {
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../manifests/org.lux.tmdb.json"))
+                .expect("TMDb manifest should be valid JSON");
+        let fields = manifest["configFields"]
+            .as_array()
+            .expect("TMDb manifest should list config fields");
+        let default_for = |key: &str| -> Option<i64> {
+            fields
+                .iter()
+                .find(|field| field["key"] == key)
+                .and_then(|field| field.get("defaultValue"))
+                .and_then(|value| {
+                    value
+                        .as_i64()
+                        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+                })
+        };
+
+        assert_eq!(
+            default_for("posterMinWidth"),
+            Some(DEFAULT_POSTER_MIN_WIDTH)
+        );
+        assert_eq!(
+            default_for("backdropMinWidth"),
+            Some(DEFAULT_BACKDROP_MIN_WIDTH)
+        );
+        assert_eq!(default_for("stillMinWidth"), Some(DEFAULT_STILL_MIN_WIDTH));
+        assert_eq!(default_for("logoMinWidth"), Some(DEFAULT_LOGO_MIN_WIDTH));
+        assert_eq!(
+            default_for("profileMinWidth"),
+            Some(DEFAULT_PROFILE_MIN_WIDTH)
+        );
     }
 }
