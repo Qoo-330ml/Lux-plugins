@@ -19,6 +19,7 @@ use std::{
 };
 
 use luxd::application::plugin_protocol::{PluginRequest, PluginResponse, PluginRpcError};
+use luxd::application::trakt_nfo::{self, SourceScore};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -344,7 +345,7 @@ async fn lookup_uncached(config: &Config, params: &Value) -> Result<Value, Plugi
         .ok_or_else(not_found_error)?;
         let episode_year = opt_i64(params, "year");
         return Ok(build_result(
-            &config,
+            config,
             &data,
             Some(show_id),
             "episode",
@@ -375,7 +376,7 @@ async fn lookup_uncached(config: &Config, params: &Value) -> Result<Value, Plugi
         let resolved = resolve_trakt_id(&client, &client_id, plural, &id, &data).await;
         let _ = single;
         return Ok(build_result(
-            &config,
+            config,
             &data,
             Some(resolved),
             matched_by,
@@ -463,7 +464,7 @@ async fn lookup_uncached(config: &Config, params: &Value) -> Result<Value, Plugi
             )
             .await?
             .ok_or_else(not_found_error)?;
-            Ok(build_result(&config, &data, Some(id), matched_by, year))
+            Ok(build_result(config, &data, Some(id), matched_by, year))
         }
         _ => Ok(json!({
             "ambiguous": true,
@@ -590,6 +591,65 @@ fn source_block(data: &Value, key: &str) -> Value {
     })
 }
 
+/// 从 `sources` 里挑出真正有评分的源，保持固定的源顺序交给 NFO 构建器。
+fn nfo_source_scores(sources: &Value) -> Vec<SourceScore<'static>> {
+    const KEYS: [&str; 7] = [
+        "rottenTomatoes",
+        "metascore",
+        "imdb",
+        "tmdb",
+        "letterboxd",
+        "mal",
+        "trakt",
+    ];
+    KEYS.into_iter()
+        .filter_map(|key| {
+            let block = sources.get(key)?;
+            if block.get("present").and_then(Value::as_bool) != Some(true) {
+                return None;
+            }
+            let rating = block.get("rating").and_then(Value::as_f64)?;
+            Some(SourceScore {
+                source: key,
+                rating,
+                votes: block.get("votes").and_then(Value::as_i64),
+            })
+        })
+        .collect()
+}
+
+/// 拼出 `writeback.nfo`。只在 `confident == true` 时调用。
+fn nfo_block(
+    sources: &Value,
+    primary_source: &str,
+    primary_rating: f64,
+    primary_votes: i64,
+    fallback_critic: Option<f64>,
+) -> Value {
+    let scores = nfo_source_scores(sources);
+    let ratings = trakt_nfo::build_ratings(&scores, primary_source);
+    let primary = ratings.iter().find(|rating| rating.default);
+    let rating = primary
+        .map(|rating| rating.value)
+        .unwrap_or_else(|| trakt_nfo::round_score(primary_rating));
+    let votes = primary
+        .and_then(|rating| rating.votes)
+        .unwrap_or(primary_votes);
+    // Jellyfin 会把最后一个番茄条目写进 CriticRating；没有番茄时退回
+    // 现有的 metascore/10 逻辑，保证顶层 <criticrating> 与 <ratings> 不冲突。
+    let critic = trakt_nfo::critic_rating(&ratings)
+        .or(fallback_critic)
+        .map(trakt_nfo::round_score);
+    let xml = trakt_nfo::ratings_xml(&ratings);
+    json!({
+        "ratings": ratings,
+        "xml": xml,
+        "rating": rating,
+        "votes": votes,
+        "criticRating": critic
+    })
+}
+
 fn build_result(
     config: &Config,
     data: &Value,
@@ -626,13 +686,16 @@ fn build_result(
         "source": Value::Null,
         "rating": Value::Null,
         "votes": Value::Null,
-        "criticRating": Value::Null
+        "criticRating": Value::Null,
+        "nfo": Value::Null
     });
     for name in ["trakt", "imdb", "tmdb"] {
         let block = sources.get(name).cloned().unwrap_or(Value::Null);
-        let rating = block.get("rating").and_then(Value::as_f64);
+        let Some(rating) = block.get("rating").and_then(Value::as_f64) else {
+            continue;
+        };
         let votes = block.get("votes").and_then(Value::as_i64).unwrap_or(0);
-        if rating.is_none() || votes < min_votes {
+        if votes < min_votes {
             continue;
         }
         let critic = sources
@@ -651,7 +714,8 @@ fn build_result(
             "source": name,
             "rating": rating,
             "votes": votes,
-            "criticRating": critic
+            "criticRating": critic,
+            "nfo": nfo_block(&sources, name, rating, votes, critic)
         });
         break;
     }
@@ -758,4 +822,112 @@ async fn search(params: &Value) -> Result<Value, PluginRpcError> {
         })
         .collect();
     Ok(json!({"count": candidates.len(), "candidates": candidates}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_data() -> Value {
+        json!({
+            "trakt": {
+                "rating": 6.56425,
+                "votes": 280,
+                "distribution": {"1": 1, "2": 6, "10": 11}
+            },
+            "imdb": {"rating": 7.8, "votes": 199521},
+            "tmdb": {"rating": 8.251, "votes": 3739},
+            "metascore": {"rating": 72},
+            "rotten_tomatoes": {"rating": 87},
+            "letterboxd": {"rating": 4.12, "votes": 100},
+            "mal": {"rating": 8.2, "votes": 50}
+        })
+    }
+
+    #[test]
+    fn writeback_keeps_legacy_fields_and_adds_kodi_nfo() {
+        let result = build_result(
+            &Config::default(),
+            &sample_data(),
+            Some("425981".to_owned()),
+            "id",
+            Some(2019),
+        );
+        let writeback = result["writeback"]
+            .as_object()
+            .expect("writeback should be an object");
+        assert_eq!(writeback.len(), 6);
+        assert_eq!(writeback["confident"], json!(true));
+        assert_eq!(writeback["source"], json!("trakt"));
+        assert_eq!(writeback["rating"], json!(6.56425));
+        assert_eq!(writeback["votes"], json!(280));
+
+        let nfo = &writeback["nfo"];
+        assert_eq!(nfo["rating"], json!(6.564));
+        assert_eq!(nfo["votes"], json!(280));
+        assert_eq!(nfo["criticRating"], json!(8.7));
+        assert_eq!(nfo["ratings"].as_array().map(Vec::len), Some(7));
+        assert_eq!(nfo["ratings"][0]["max"], json!(10));
+        assert_eq!(nfo["ratings"][0]["default"], json!(false));
+        assert_eq!(nfo["ratings"][0]["value"], json!(8.7));
+        assert_eq!(nfo["ratings"][6]["default"], json!(true));
+        assert_eq!(
+            nfo["ratings"]
+                .as_array()
+                .and_then(|ratings| ratings.last())
+                .and_then(|rating| rating.get("name")),
+            Some(&json!("trakt"))
+        );
+        assert_eq!(
+            nfo["ratings"]
+                .as_array()
+                .and_then(|ratings| ratings.first())
+                .and_then(|rating| rating.get("name")),
+            Some(&json!("tomatometerallcritics"))
+        );
+        let xml = nfo["xml"].as_str().expect("xml should be a string");
+        assert!(xml.starts_with("<ratings>"));
+        assert!(xml.ends_with("</ratings>"));
+        assert!(xml.contains("<value>6.564</value>"));
+        assert!(xml.contains("name=\"tomatometerallcritics\""));
+        assert!(xml.contains("name=\"metacritic\""));
+        assert!(xml.contains("name=\"themoviedb\""));
+        assert!(xml.contains("name=\"myanimelist\""));
+        assert!(
+            xml.find("name=\"tomatometerallcritics\"").unwrap()
+                < xml.find("name=\"trakt\"").unwrap()
+        );
+        assert!(xml.rfind("<rating ").unwrap() > xml.rfind("name=\"imdb\"").unwrap());
+    }
+
+    #[test]
+    fn writeback_nfo_is_null_when_not_confident() {
+        let result = build_result(
+            &Config::default(),
+            &json!({"trakt": {"rating": 6.0, "votes": 10}}),
+            Some("1".to_owned()),
+            "id",
+            None,
+        );
+        assert_eq!(result["writeback"]["confident"], json!(false));
+        assert_eq!(result["writeback"]["nfo"], Value::Null);
+    }
+
+    #[test]
+    fn absent_sources_are_not_written_to_nfo() {
+        let result = build_result(
+            &Config::default(),
+            &json!({"trakt": {"rating": 7.25, "votes": 120}}),
+            Some("1".to_owned()),
+            "id",
+            None,
+        );
+        let nfo = &result["writeback"]["nfo"];
+        assert_eq!(nfo["ratings"].as_array().map(Vec::len), Some(1));
+        assert_eq!(nfo["criticRating"], Value::Null);
+        let xml = nfo["xml"].as_str().unwrap();
+        assert!(xml.contains("name=\"trakt\""));
+        assert!(!xml.contains("name=\"imdb\""));
+        assert!(!xml.contains("name=\"metacritic\""));
+    }
 }

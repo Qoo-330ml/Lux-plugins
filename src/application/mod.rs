@@ -11,3 +11,4 @@ pub mod remote_url_policy;
 pub mod settings;
 pub mod strm_probe_policy;
 pub mod tmdb;
+pub mod trakt_nfo;
