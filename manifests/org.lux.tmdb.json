@@ -79,51 +79,6 @@
     "defaultValue": "https://api.themoviedb.org",
     "description": "选择自定义时填写基础地址；不要附带查询参数或片段。"
   }, {
-    "key": "posterSize",
-    "label": "海报尺寸",
-    "type": "select",
-    "required": false,
-    "sensitive": false,
-    "defaultValue": "w500",
-    "description": "优先尺寸，原图不足时自动使用原图。",
-    "options": [{"value":"w342","label":"w342"},{"value":"w500","label":"w500"},{"value":"w780","label":"w780"},{"value":"original","label":"original（原图）"}]
-  }, {
-    "key": "backdropSize",
-    "label": "背景图尺寸",
-    "type": "select",
-    "required": false,
-    "sensitive": false,
-    "defaultValue": "w1280",
-    "description": "优先尺寸，原图不足时自动使用原图。",
-    "options": [{"value":"w780","label":"w780"},{"value":"w1280","label":"w1280"},{"value":"original","label":"original（原图）"}]
-  }, {
-    "key": "stillSize",
-    "label": "剧照尺寸",
-    "type": "select",
-    "required": false,
-    "sensitive": false,
-    "defaultValue": "w300",
-    "description": "优先尺寸，原图不足时自动使用原图。",
-    "options": [{"value":"w185","label":"w185"},{"value":"w300","label":"w300"},{"value":"original","label":"original（原图）"}]
-  }, {
-    "key": "logoSize",
-    "label": "Logo 尺寸",
-    "type": "select",
-    "required": false,
-    "sensitive": false,
-    "defaultValue": "w500",
-    "description": "优先尺寸，原图不足时自动使用原图。",
-    "options": [{"value":"w185","label":"w185"},{"value":"w300","label":"w300"},{"value":"w500","label":"w500"},{"value":"original","label":"original（原图）"}]
-  }, {
-    "key": "profileSize",
-    "label": "头像尺寸",
-    "type": "select",
-    "required": false,
-    "sensitive": false,
-    "defaultValue": "w185",
-    "description": "优先尺寸，原图不足时自动使用原图。",
-    "options": [{"value":"w185","label":"w185"},{"value":"h632","label":"h632（按高度）"},{"value":"original","label":"original（原图）"}]
-  }, {
     "key": "titleAliasReplacementEnabled",
     "label": "标题别名替换",
     "type": "toggle",
