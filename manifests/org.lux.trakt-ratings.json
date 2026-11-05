@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "org.lux.trakt-ratings",
   "name": "Trakt 多源评分",
-  "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议。本插件只做查询：不读取媒体库文件、不写 NFO、不触发媒体库刷新，这三件事由宿主完成。",
+  "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议（含 Kodi <ratings> 片段）。插件只查询并给出 Kodi 格式的写回内容；遍历媒体库、写 NFO、触发刷新由宿主的 RATINGS_SYNC 任务完成。",
   "version": "__VERSION__",
   "apiVersion": 1,
   "runtime": {
@@ -34,6 +34,16 @@
       "required": true,
       "sensitive": true,
       "description": "在 trakt.tv/oauth/applications 创建 app 后取得。请求会同时带上 trakt-api-key 与 trakt-api-version: 2。"
+    },
+    {
+      "key": "libraryIds",
+      "label": "媒体库",
+      "type": "select",
+      "required": false,
+      "multiple": true,
+      "optionsSource": "media-libraries",
+      "defaultValue": [],
+      "description": "只对选中的媒体库查询并回写评分；不选择则不创建任务。"
     },
     {
       "key": "minVotes",
@@ -76,6 +86,29 @@
         }
       ],
       "description": "仅影响返回结果里的 primary 字段，不会改变各源原始值。"
+    },
+    {
+      "key": "schedule",
+      "label": "执行计划",
+      "type": "text",
+      "required": true,
+      "defaultValue": "0 4 * * *",
+      "description": "按 UTC 执行评分同步任务，默认每天 04:00。"
+    }
+  ],
+  "scheduledTasks": [
+    {
+      "taskType": "RATINGS_SYNC",
+      "ownerType": "LIBRARY",
+      "ownerConfigKey": "libraryIds",
+      "name": "Trakt 评分同步",
+      "description": "按选中媒体库遍历 NFO，调用 ratings.batch 查询 Trakt 评分，并写回 Kodi <ratings> 片段与顶层 rating/votes/criticrating。",
+      "scheduleConfigKey": "schedule",
+      "defaultSchedule": "0 4 * * *",
+      "requiredConfigKeys": [
+        "clientId",
+        "libraryIds"
+      ]
     }
   ],
   "permissions": {
