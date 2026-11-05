@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env,
     path::PathBuf,
-    sync::{Arc, Mutex as StdMutex, MutexGuard},
+    sync::{Arc, Mutex as StdMutex, MutexGuard, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -16,10 +16,11 @@ use luxd::application::{
     },
     tmdb::{
         TmdbAlternativeTitlesResponse, TmdbClient, TmdbCollectionDetails,
-        TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImagesResponse,
-        TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails, TmdbPersonSearchResponse,
-        TmdbSeasonDetails, TmdbSeriesDetails, TmdbTranslation, TmdbTranslationData,
-        TmdbTranslationsResponse, TmdbTvSearchResponse, TmdbVideosResponse, fill_if_empty,
+        TmdbCollectionSearchResponse, TmdbEpisodeDetails, TmdbExternalIds, TmdbImageReference,
+        TmdbImagesResponse, TmdbMovieDetails, TmdbMovieSearchResponse, TmdbPersonDetails,
+        TmdbPersonSearchResponse, TmdbSeasonDetails, TmdbSeriesDetails, TmdbTranslation,
+        TmdbTranslationData, TmdbTranslationsResponse, TmdbTvSearchResponse, TmdbVideosResponse,
+        fill_if_empty,
     },
 };
 use serde::Deserialize;
@@ -60,6 +61,16 @@ struct TmdbPluginConfig {
     api_base_url_preset: Option<String>,
     #[serde(default)]
     api_base_url: Option<String>,
+    #[serde(default)]
+    poster_size: Option<String>,
+    #[serde(default)]
+    backdrop_size: Option<String>,
+    #[serde(default)]
+    still_size: Option<String>,
+    #[serde(default)]
+    logo_size: Option<String>,
+    #[serde(default)]
+    profile_size: Option<String>,
 }
 
 type InflightMap = StdMutex<HashMap<String, Arc<Notify>>>;
@@ -852,7 +863,7 @@ async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
             }
             Ok(json!({
                 "metadata": movie_details(details.clone()),
-                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "images": {"images": image_results(details.images.unwrap_or_default(), image_sizes())},
                 "credits": credits_result(details.credits.unwrap_or_default()),
                 "externalIds": {"providerIds": provider_ids},
                 "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
@@ -869,7 +880,7 @@ async fn metadata_bundle(params: Value) -> Result<Value, PluginRpcError> {
             }
             Ok(json!({
                 "metadata": series_details(details.clone()),
-                "images": {"images": image_results(details.images.unwrap_or_default())},
+                "images": {"images": image_results(details.images.unwrap_or_default(), image_sizes())},
                 "credits": credits_result(details.credits.unwrap_or_default()),
                 "externalIds": {"providerIds": provider_ids},
                 "trailers": {"trailers": trailer_results(details.videos.unwrap_or_default())}
@@ -1019,7 +1030,7 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
                 .collection_details(collection_id, &language)
                 .await
                 .map_err(tmdb_error)?;
-            return Ok(json!({"images": collection_image_results(collection)}));
+            return Ok(json!({"images": collection_image_results(collection, image_sizes())}));
         }
         item_type => {
             return Err(PluginRpcError {
@@ -1028,7 +1039,7 @@ async fn images(params: Value) -> Result<Value, PluginRpcError> {
             });
         }
     };
-    Ok(json!({"images": image_results(images)}))
+    Ok(json!({"images": image_results(images, image_sizes())}))
 }
 
 async fn trailers(params: Value) -> Result<Value, PluginRpcError> {
@@ -1244,8 +1255,8 @@ fn movie_details(details: TmdbMovieDetails) -> Value {
         "Studios": details.production_companies.into_iter().filter_map(|company| company.name).collect::<Vec<_>>(),
         "SetName": details.belongs_to_collection.as_ref().and_then(|collection| collection.name.clone()),
         "SetId": details.belongs_to_collection.as_ref().map(|collection| collection.id.to_string()),
-        "PosterUrl": details.poster_path.as_deref().map(image_url),
-        "BackdropUrl": details.backdrop_path.as_deref().map(image_url),
+        "PosterUrl": details.poster_path.as_deref().map(|path| image_url(ImageKind::Poster, path, None)),
+        "BackdropUrl": details.backdrop_path.as_deref().map(|path| image_url(ImageKind::Backdrop, path, None)),
         "ProviderIds": {"Tmdb": details.id.to_string()},
         "OriginalLanguage": details.original_language,
         "BelongsToCollection": details.belongs_to_collection.map(|collection| json!({
@@ -1269,8 +1280,8 @@ fn tv_search_results(response: TmdbTvSearchResponse) -> Vec<Value> {
                 "Rating": result.vote_average,
                 "ProviderIds": {"Tmdb": result.id.to_string()},
                 "SearchProviderName": "Tmdb",
-                "ImageUrl": result.poster_path.as_deref().map(image_url),
-                "BackdropImageUrl": result.backdrop_path.as_deref().map(image_url)
+                "ImageUrl": result.poster_path.as_deref().map(|path| image_url(ImageKind::Poster, path, None)),
+                "BackdropImageUrl": result.backdrop_path.as_deref().map(|path| image_url(ImageKind::Backdrop, path, None))
             })
         })
         .collect()
@@ -1366,14 +1377,14 @@ fn collection_details(details: TmdbCollectionDetails) -> Value {
         "Name": details.name,
         "Overview": details.overview,
         "ProviderIds": {"Tmdb": details.id.to_string()},
-        "ImageUrl": details.poster_path.as_deref().map(image_url),
-        "BackdropImageUrl": details.backdrop_path.as_deref().map(image_url),
+        "ImageUrl": details.poster_path.as_deref().map(|path| image_url(ImageKind::Poster, path, None)),
+        "BackdropImageUrl": details.backdrop_path.as_deref().map(|path| image_url(ImageKind::Backdrop, path, None)),
         "Items": details.parts.into_iter().map(|part| json!({
             "Type": "Movie",
             "Name": part.title,
             "ProductionYear": part.release_date.as_deref().and_then(parse_year),
             "ProviderIds": {"Tmdb": part.id.to_string()},
-            "ImageUrl": part.poster_path.as_deref().map(image_url)
+            "ImageUrl": part.poster_path.as_deref().map(|path| image_url(ImageKind::Poster, path, None))
         })).collect::<Vec<_>>()
     })
 }
@@ -1413,109 +1424,304 @@ fn credits_result(response: luxd::application::tmdb::TmdbCreditsResponse) -> Val
             "Name": actor.name,
             "Character": actor.character,
             "Order": actor.order,
-            "ProfileUrl": actor.profile_path.as_deref().map(image_url)
+            "ProfileUrl": actor.profile_path.as_deref().map(|path| image_url(ImageKind::Profile, path, None))
         })).collect::<Vec<_>>(),
         "crew": response.crew.into_iter().map(|credit| json!({
             "Id": credit.id.to_string(),
             "Name": credit.name,
             "Job": credit.job,
             "Department": credit.department,
-            "ProfileUrl": credit.profile_path.as_deref().map(image_url)
+            "ProfileUrl": credit.profile_path.as_deref().map(|path| image_url(ImageKind::Profile, path, None))
         })).collect::<Vec<_>>()
     })
 }
 
-fn image_results(response: TmdbImagesResponse) -> Vec<Value> {
+const ORIGINAL_IMAGE_SIZE: &str = "original";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImageKind {
+    Poster,
+    Backdrop,
+    Still,
+    Logo,
+    Profile,
+}
+
+impl ImageKind {
+    #[cfg(test)]
+    const ALL: [Self; 5] = [
+        Self::Poster,
+        Self::Backdrop,
+        Self::Still,
+        Self::Logo,
+        Self::Profile,
+    ];
+
+    /// The sizes image.tmdb.org accepts for this kind, in ascending order.
+    const fn sizes(self) -> &'static [&'static str] {
+        match self {
+            Self::Poster => &[
+                "w92",
+                "w154",
+                "w185",
+                "w342",
+                "w500",
+                "w780",
+                ORIGINAL_IMAGE_SIZE,
+            ],
+            Self::Backdrop => &["w300", "w780", "w1280", ORIGINAL_IMAGE_SIZE],
+            Self::Still => &["w92", "w185", "w300", ORIGINAL_IMAGE_SIZE],
+            Self::Logo => &[
+                "w45",
+                "w92",
+                "w154",
+                "w185",
+                "w300",
+                "w500",
+                ORIGINAL_IMAGE_SIZE,
+            ],
+            Self::Profile => &["w45", "w185", "h632", ORIGINAL_IMAGE_SIZE],
+        }
+    }
+
+    const fn default_size(self) -> &'static str {
+        match self {
+            Self::Poster | Self::Logo => "w500",
+            Self::Backdrop => "w1280",
+            Self::Still => "w300",
+            Self::Profile => "w185",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ImageSizes {
+    poster: &'static str,
+    backdrop: &'static str,
+    still: &'static str,
+    logo: &'static str,
+    profile: &'static str,
+}
+
+impl Default for ImageSizes {
+    fn default() -> Self {
+        Self {
+            poster: ImageKind::Poster.default_size(),
+            backdrop: ImageKind::Backdrop.default_size(),
+            still: ImageKind::Still.default_size(),
+            logo: ImageKind::Logo.default_size(),
+            profile: ImageKind::Profile.default_size(),
+        }
+    }
+}
+
+impl ImageSizes {
+    fn from_config(config: &TmdbPluginConfig) -> Self {
+        let defaults = Self::default();
+        Self {
+            poster: configured_image_size(ImageKind::Poster, config.poster_size.as_deref())
+                .unwrap_or(defaults.poster),
+            backdrop: configured_image_size(ImageKind::Backdrop, config.backdrop_size.as_deref())
+                .unwrap_or(defaults.backdrop),
+            still: configured_image_size(ImageKind::Still, config.still_size.as_deref())
+                .unwrap_or(defaults.still),
+            logo: configured_image_size(ImageKind::Logo, config.logo_size.as_deref())
+                .unwrap_or(defaults.logo),
+            profile: configured_image_size(ImageKind::Profile, config.profile_size.as_deref())
+                .unwrap_or(defaults.profile),
+        }
+    }
+
+    fn get(&self, kind: ImageKind) -> &'static str {
+        match kind {
+            ImageKind::Poster => self.poster,
+            ImageKind::Backdrop => self.backdrop,
+            ImageKind::Still => self.still,
+            ImageKind::Logo => self.logo,
+            ImageKind::Profile => self.profile,
+        }
+    }
+}
+
+fn image_sizes() -> &'static ImageSizes {
+    static SIZES: OnceLock<ImageSizes> = OnceLock::new();
+    SIZES.get_or_init(|| ImageSizes::from_config(&read_plugin_config()))
+}
+
+fn configured_image_size(kind: ImageKind, preferred: Option<&str>) -> Option<&'static str> {
+    let preferred = preferred.map(str::trim).filter(|value| !value.is_empty())?;
+    official_image_size(kind, preferred)
+}
+
+fn official_image_size(kind: ImageKind, size: &str) -> Option<&'static str> {
+    kind.sizes()
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == size)
+}
+
+fn pick_image_size(
+    kind: ImageKind,
+    preferred: &str,
+    original_size: Option<(i32, i32)>,
+) -> &'static str {
+    let preferred = official_image_size(kind, preferred).unwrap_or(kind.default_size());
+    if preferred == ORIGINAL_IMAGE_SIZE {
+        return ORIGINAL_IMAGE_SIZE;
+    }
+    let Some((width, height)) = original_size else {
+        return preferred;
+    };
+    let Some((axis, limit)) = size_limit(preferred) else {
+        return preferred;
+    };
+    let available = match axis {
+        SizeAxis::Width => width,
+        SizeAxis::Height => height,
+    };
+    if available < limit {
+        ORIGINAL_IMAGE_SIZE
+    } else {
+        preferred
+    }
+}
+
+fn fallback_sizes(kind: ImageKind, chosen: &str) -> Vec<&'static str> {
+    let sizes = kind.sizes();
+    let chosen = official_image_size(kind, chosen).unwrap_or(kind.default_size());
+    let Some(index) = sizes.iter().position(|size| *size == chosen) else {
+        return Vec::new();
+    };
+    sizes[index + 1..].to_vec()
+}
+
+#[derive(Clone, Copy)]
+enum SizeAxis {
+    Width,
+    Height,
+}
+
+fn size_limit(size: &str) -> Option<(SizeAxis, i32)> {
+    let (axis, digits) = match size.as_bytes().first()? {
+        b'w' => (SizeAxis::Width, &size[1..]),
+        b'h' => (SizeAxis::Height, &size[1..]),
+        _ => return None,
+    };
+    digits.parse().ok().map(|limit| (axis, limit))
+}
+
+fn image_dimensions(image: &TmdbImageReference) -> Option<(i32, i32)> {
+    Some((image.width?, image.height?))
+}
+
+fn image_urls(
+    kind: ImageKind,
+    path: &str,
+    original_size: Option<(i32, i32)>,
+    sizes: &ImageSizes,
+) -> (String, Vec<String>) {
+    let chosen = pick_image_size(kind, sizes.get(kind), original_size);
+    (
+        image_url_for_size(chosen, path),
+        fallback_sizes(kind, chosen)
+            .into_iter()
+            .map(|size| image_url_for_size(size, path))
+            .collect(),
+    )
+}
+
+fn image_entry(
+    kind: ImageKind,
+    image_type: &str,
+    image: TmdbImageReference,
+    sizes: &ImageSizes,
+) -> Option<Value> {
+    let path = image.file_path.as_deref()?;
+    let (url, fallback_urls) = image_urls(kind, path, image_dimensions(&image), sizes);
+    Some(json!({
+        "Type": image_type,
+        "Url": url,
+        "ThumbnailUrl": url,
+        "FallbackUrls": fallback_urls,
+        "Language": image.iso_639_1,
+        "Width": image.width,
+        "Height": image.height,
+        "ProviderName": "Tmdb"
+    }))
+}
+
+fn image_results(response: TmdbImagesResponse, sizes: &ImageSizes) -> Vec<Value> {
     let mut images = Vec::new();
-    images.extend(response.posters.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Primary",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.backdrops.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Backdrop",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.stills.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Backdrop",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.profiles.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Primary",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
-    images.extend(response.logos.into_iter().filter_map(|image| {
-        image.file_path.map(|path| {
-            json!({
-                "Type": "Logo",
-                "Url": image_url(&path),
-                "ThumbnailUrl": image_url(&path),
-                "Language": image.iso_639_1,
-                "Width": image.width,
-                "Height": image.height,
-                "ProviderName": "Tmdb"
-            })
-        })
-    }));
+    images.extend(
+        response
+            .posters
+            .into_iter()
+            .filter_map(|image| image_entry(ImageKind::Poster, "Primary", image, sizes)),
+    );
+    images.extend(
+        response
+            .backdrops
+            .into_iter()
+            .filter_map(|image| image_entry(ImageKind::Backdrop, "Backdrop", image, sizes)),
+    );
+    images.extend(
+        response
+            .stills
+            .into_iter()
+            .filter_map(|image| image_entry(ImageKind::Still, "Backdrop", image, sizes)),
+    );
+    images.extend(
+        response
+            .profiles
+            .into_iter()
+            .filter_map(|image| image_entry(ImageKind::Profile, "Primary", image, sizes)),
+    );
+    images.extend(
+        response
+            .logos
+            .into_iter()
+            .filter_map(|image| image_entry(ImageKind::Logo, "Logo", image, sizes)),
+    );
     images
+}
+
+fn collection_image_entry(
+    kind: ImageKind,
+    image_type: &str,
+    path: &str,
+    sizes: &ImageSizes,
+) -> Value {
+    let (url, fallback_urls) = image_urls(kind, path, None, sizes);
+    json!({
+        "Type": image_type,
+        "Url": url,
+        "ThumbnailUrl": url,
+        "FallbackUrls": fallback_urls,
+        "ProviderName": "Tmdb"
+    })
 }
 
 fn requests_all_image_languages(request: &MetadataRequest) -> bool {
     request.language.as_deref() == Some("")
 }
 
-fn collection_image_results(details: TmdbCollectionDetails) -> Vec<Value> {
+fn collection_image_results(details: TmdbCollectionDetails, sizes: &ImageSizes) -> Vec<Value> {
     let mut images = Vec::new();
     if let Some(path) = details.poster_path {
-        images.push(json!({
-            "Type": "Primary",
-            "Url": image_url(&path),
-            "ThumbnailUrl": image_url(&path),
-            "ProviderName": "Tmdb"
-        }));
+        images.push(collection_image_entry(
+            ImageKind::Poster,
+            "Primary",
+            &path,
+            sizes,
+        ));
     }
     if let Some(path) = details.backdrop_path {
-        images.push(json!({
-            "Type": "Backdrop",
-            "Url": image_url(&path),
-            "ThumbnailUrl": image_url(&path),
-            "ProviderName": "Tmdb"
-        }));
+        images.push(collection_image_entry(
+            ImageKind::Backdrop,
+            "Backdrop",
+            &path,
+            sizes,
+        ));
     }
     images
 }
@@ -1561,8 +1767,15 @@ fn runtime_ticks(minutes: i32) -> i64 {
     i64::from(minutes.max(0)) * 60 * 10_000_000
 }
 
-fn image_url(path: &str) -> String {
-    format!("https://image.tmdb.org/t/p/original{path}")
+fn image_url(kind: ImageKind, path: &str, original_size: Option<(i32, i32)>) -> String {
+    image_url_for_size(
+        pick_image_size(kind, image_sizes().get(kind), original_size),
+        path,
+    )
+}
+
+fn image_url_for_size(size: &str, path: &str) -> String {
+    format!("https://image.tmdb.org/t/p/{size}{path}")
 }
 
 fn parse_year(value: &str) -> Option<i32> {
@@ -1595,6 +1808,33 @@ mod tests {
     };
 
     use super::*;
+
+    fn image_reference(path: &str, width: i32, height: i32) -> TmdbImageReference {
+        TmdbImageReference {
+            file_path: Some(path.to_owned()),
+            iso_639_1: Some("en".to_owned()),
+            width: Some(width),
+            height: Some(height),
+            vote_average: None,
+        }
+    }
+
+    fn sized_config(
+        poster: Option<&str>,
+        backdrop: Option<&str>,
+        still: Option<&str>,
+        logo: Option<&str>,
+        profile: Option<&str>,
+    ) -> TmdbPluginConfig {
+        TmdbPluginConfig {
+            poster_size: poster.map(str::to_owned),
+            backdrop_size: backdrop.map(str::to_owned),
+            still_size: still.map(str::to_owned),
+            logo_size: logo.map(str::to_owned),
+            profile_size: profile.map(str::to_owned),
+            ..TmdbPluginConfig::default()
+        }
+    }
 
     #[test]
     fn empty_search_response_is_not_reported_as_a_provider_error() {
@@ -1883,5 +2123,280 @@ mod tests {
         let owner = InflightOwner::new(map, "cancelled".to_owned(), notify);
         drop(owner);
         assert!(lock_inflight(map).is_empty());
+    }
+
+    #[test]
+    fn image_size_tables_match_the_official_tmdb_sizes() {
+        assert_eq!(
+            ImageKind::Poster.sizes(),
+            ["w92", "w154", "w185", "w342", "w500", "w780", "original"].as_slice()
+        );
+        assert_eq!(
+            ImageKind::Backdrop.sizes(),
+            ["w300", "w780", "w1280", "original"].as_slice()
+        );
+        assert_eq!(
+            ImageKind::Still.sizes(),
+            ["w92", "w185", "w300", "original"].as_slice()
+        );
+        assert_eq!(
+            ImageKind::Logo.sizes(),
+            ["w45", "w92", "w154", "w185", "w300", "w500", "original"].as_slice()
+        );
+        assert_eq!(
+            ImageKind::Profile.sizes(),
+            ["w45", "w185", "h632", "original"].as_slice()
+        );
+
+        assert_eq!(ImageKind::Poster.default_size(), "w500");
+        assert_eq!(ImageKind::Backdrop.default_size(), "w1280");
+        assert_eq!(ImageKind::Still.default_size(), "w300");
+        assert_eq!(ImageKind::Logo.default_size(), "w500");
+        assert_eq!(ImageKind::Profile.default_size(), "w185");
+    }
+
+    #[test]
+    fn pick_image_size_accepts_every_official_size_and_returns_the_preferred_one() {
+        for kind in ImageKind::ALL {
+            for size in kind.sizes() {
+                assert_eq!(pick_image_size(kind, size, None), *size);
+            }
+        }
+    }
+
+    #[test]
+    fn pick_image_size_falls_back_to_the_kind_default_for_invalid_or_empty_values() {
+        for kind in ImageKind::ALL {
+            assert_eq!(pick_image_size(kind, "", None), kind.default_size());
+            assert_eq!(pick_image_size(kind, "w123", None), kind.default_size());
+            assert_eq!(pick_image_size(kind, "original", None), "original");
+            assert_eq!(
+                pick_image_size(kind, "w9999", Some((1, 1))),
+                "original",
+                "the default size uses source protection"
+            );
+        }
+    }
+
+    #[test]
+    fn pick_image_size_returns_original_when_the_source_is_smaller_than_the_preferred_size() {
+        assert_eq!(
+            pick_image_size(ImageKind::Poster, "w500", Some((499, 750))),
+            "original"
+        );
+        assert_eq!(
+            pick_image_size(ImageKind::Poster, "w500", Some((500, 750))),
+            "w500"
+        );
+        assert_eq!(
+            pick_image_size(ImageKind::Poster, "w500", Some((501, 750))),
+            "w500"
+        );
+        assert_eq!(
+            pick_image_size(ImageKind::Poster, "original", Some((1, 1))),
+            "original"
+        );
+    }
+
+    #[test]
+    fn pick_image_size_compares_the_source_height_for_h632() {
+        assert_eq!(
+            pick_image_size(ImageKind::Profile, "h632", Some((5000, 631))),
+            "original"
+        );
+        assert_eq!(
+            pick_image_size(ImageKind::Profile, "h632", Some((5000, 632))),
+            "h632"
+        );
+        assert_eq!(
+            pick_image_size(ImageKind::Profile, "h632", Some((5000, 900))),
+            "h632"
+        );
+    }
+
+    #[test]
+    fn fallback_sizes_only_list_larger_official_sizes_ending_with_original() {
+        assert_eq!(
+            fallback_sizes(ImageKind::Poster, "w185"),
+            ["w342", "w500", "w780", "original"]
+        );
+        assert_eq!(
+            fallback_sizes(ImageKind::Poster, "w500"),
+            ["w780", "original"]
+        );
+        assert!(fallback_sizes(ImageKind::Poster, "original").is_empty());
+        assert_eq!(
+            fallback_sizes(ImageKind::Backdrop, "w780"),
+            ["w1280", "original"]
+        );
+        assert_eq!(
+            fallback_sizes(ImageKind::Still, "w185"),
+            ["w300", "original"]
+        );
+        assert_eq!(
+            fallback_sizes(ImageKind::Logo, "w185"),
+            ["w300", "w500", "original"]
+        );
+        assert_eq!(
+            fallback_sizes(ImageKind::Profile, "w185"),
+            ["h632", "original"]
+        );
+        assert_eq!(
+            fallback_sizes(ImageKind::Poster, "w123"),
+            ["w780", "original"],
+            "an invalid chosen size falls back to the default size"
+        );
+    }
+
+    #[test]
+    fn image_sizes_read_each_config_key_and_ignore_invalid_values() {
+        let sizes = ImageSizes::from_config(&sized_config(
+            Some("w342"),
+            Some("w780"),
+            Some("w185"),
+            Some("w300"),
+            Some("h632"),
+        ));
+
+        assert_eq!(sizes.get(ImageKind::Poster), "w342");
+        assert_eq!(sizes.get(ImageKind::Backdrop), "w780");
+        assert_eq!(sizes.get(ImageKind::Still), "w185");
+        assert_eq!(sizes.get(ImageKind::Logo), "w300");
+        assert_eq!(sizes.get(ImageKind::Profile), "h632");
+
+        let defaults = ImageSizes::from_config(&sized_config(
+            Some("w123"),
+            None,
+            Some(""),
+            Some("h9999"),
+            Some("w45"),
+        ));
+
+        assert_eq!(defaults.get(ImageKind::Poster), "w500");
+        assert_eq!(defaults.get(ImageKind::Backdrop), "w1280");
+        assert_eq!(defaults.get(ImageKind::Still), "w300");
+        assert_eq!(defaults.get(ImageKind::Logo), "w500");
+        assert_eq!(
+            defaults.get(ImageKind::Profile),
+            "w45",
+            "official sizes that are not offered by the manifest are still valid"
+        );
+    }
+
+    #[test]
+    fn plugin_config_deserializes_the_image_size_keys() {
+        let config: TmdbPluginConfig = serde_json::from_value(json!({
+            "posterSize": "w342",
+            "backdropSize": "w780",
+            "stillSize": "w185",
+            "logoSize": "w300",
+            "profileSize": "h632"
+        }))
+        .expect("image size configuration should deserialize");
+
+        assert_eq!(config.poster_size.as_deref(), Some("w342"));
+        assert_eq!(config.backdrop_size.as_deref(), Some("w780"));
+        assert_eq!(config.still_size.as_deref(), Some("w185"));
+        assert_eq!(config.logo_size.as_deref(), Some("w300"));
+        assert_eq!(config.profile_size.as_deref(), Some("h632"));
+    }
+
+    #[test]
+    fn image_results_apply_the_configured_size_to_each_image_kind() {
+        let response = TmdbImagesResponse {
+            posters: vec![image_reference("/poster.jpg", 1000, 1500)],
+            backdrops: vec![image_reference("/backdrop.jpg", 3840, 2160)],
+            stills: vec![image_reference("/still.jpg", 1920, 1080)],
+            logos: vec![image_reference("/logo.png", 1000, 300)],
+            profiles: vec![image_reference("/profile.jpg", 400, 900)],
+        };
+        let sizes = ImageSizes::from_config(&sized_config(
+            Some("w780"),
+            Some("w780"),
+            Some("w185"),
+            Some("w300"),
+            Some("h632"),
+        ));
+
+        let images = image_results(response, &sizes);
+
+        assert_eq!(
+            images[0]["Url"],
+            "https://image.tmdb.org/t/p/w780/poster.jpg"
+        );
+        assert_eq!(
+            images[1]["Url"],
+            "https://image.tmdb.org/t/p/w780/backdrop.jpg"
+        );
+        assert_eq!(
+            images[2]["Url"],
+            "https://image.tmdb.org/t/p/w185/still.jpg"
+        );
+        assert_eq!(
+            images[3]["Url"],
+            "https://image.tmdb.org/t/p/h632/profile.jpg"
+        );
+        assert_eq!(images[4]["Url"], "https://image.tmdb.org/t/p/w300/logo.png");
+        for image in &images {
+            assert_eq!(image["ThumbnailUrl"], image["Url"]);
+        }
+    }
+
+    #[test]
+    fn image_results_list_only_larger_fallbacks_and_none_for_a_protected_source() {
+        let response = TmdbImagesResponse {
+            posters: vec![
+                image_reference("/large.jpg", 2000, 3000),
+                image_reference("/small.jpg", 300, 450),
+            ],
+            ..TmdbImagesResponse::default()
+        };
+        let sizes = ImageSizes::from_config(&sized_config(Some("w500"), None, None, None, None));
+
+        let images = image_results(response, &sizes);
+
+        assert_eq!(
+            images[0]["Url"],
+            "https://image.tmdb.org/t/p/w500/large.jpg"
+        );
+        assert_eq!(
+            images[0]["FallbackUrls"],
+            json!([
+                "https://image.tmdb.org/t/p/w780/large.jpg",
+                "https://image.tmdb.org/t/p/original/large.jpg"
+            ])
+        );
+        assert_eq!(
+            images[1]["Url"],
+            "https://image.tmdb.org/t/p/original/small.jpg"
+        );
+        assert_eq!(images[1]["FallbackUrls"], json!([]));
+        assert_eq!(images[1]["ThumbnailUrl"], images[1]["Url"]);
+    }
+
+    #[test]
+    fn image_results_keep_the_preferred_size_when_the_response_has_no_dimensions() {
+        let response = TmdbImagesResponse {
+            posters: vec![TmdbImageReference {
+                file_path: Some("/unknown.jpg".to_owned()),
+                ..TmdbImageReference::default()
+            }],
+            ..TmdbImagesResponse::default()
+        };
+        let sizes = ImageSizes::from_config(&sized_config(None, None, None, None, None));
+
+        let images = image_results(response, &sizes);
+
+        assert_eq!(
+            images[0]["Url"],
+            "https://image.tmdb.org/t/p/w500/unknown.jpg"
+        );
+        assert_eq!(
+            images[0]["FallbackUrls"],
+            json!([
+                "https://image.tmdb.org/t/p/w780/unknown.jpg",
+                "https://image.tmdb.org/t/p/original/unknown.jpg"
+            ])
+        );
     }
 }
