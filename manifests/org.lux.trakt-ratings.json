@@ -1,0 +1,87 @@
+{
+  "formatVersion": 1,
+  "id": "org.lux.trakt-ratings",
+  "name": "Trakt 多源评分",
+  "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议。本插件只做查询：不读取媒体库文件、不写 NFO、不触发媒体库刷新，这三件事由宿主完成。",
+  "version": "__VERSION__",
+  "apiVersion": 1,
+  "runtime": {
+    "kind": "process",
+    "entrypoint": "__ENTRYPOINT__"
+  },
+  "type": "metadata",
+  "category": "SCRAPER",
+  "providerKey": "trakt",
+  "aliases": [
+    "trakt"
+  ],
+  "supportedItemTypes": [
+    "Movie",
+    "Series",
+    "Season",
+    "Episode"
+  ],
+  "capabilities": [
+    "ratings.lookup",
+    "ratings.search",
+    "ratings.batch"
+  ],
+  "configFields": [
+    {
+      "key": "clientId",
+      "label": "Trakt Client ID",
+      "type": "password",
+      "required": true,
+      "sensitive": true,
+      "description": "在 trakt.tv/oauth/applications 创建 app 后取得。请求会同时带上 trakt-api-key 与 trakt-api-version: 2。"
+    },
+    {
+      "key": "minVotes",
+      "label": "最低票数",
+      "type": "text",
+      "required": false,
+      "defaultValue": "50",
+      "description": "Trakt 票数低于此值时标记为 lowConfidence，调用方应保留原评分。中文片在 Trakt 的票数普遍很低。"
+    },
+    {
+      "key": "preferredSource",
+      "label": "主评分源",
+      "type": "select",
+      "required": false,
+      "defaultValue": "trakt",
+      "options": [
+        {
+          "value": "trakt",
+          "label": "Trakt"
+        },
+        {
+          "value": "imdb",
+          "label": "IMDb"
+        },
+        {
+          "value": "tmdb",
+          "label": "TMDb"
+        },
+        {
+          "value": "metascore",
+          "label": "Metascore"
+        },
+        {
+          "value": "rotten_tomatoes",
+          "label": "烂番茄"
+        },
+        {
+          "value": "letterboxd",
+          "label": "Letterboxd"
+        }
+      ],
+      "description": "仅影响返回结果里的 primary 字段，不会改变各源原始值。"
+    }
+  ],
+  "permissions": {
+    "network": [
+      "api.trakt.tv"
+    ],
+    "filesystem": []
+  }
+}
