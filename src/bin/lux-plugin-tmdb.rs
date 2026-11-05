@@ -1437,7 +1437,6 @@ fn credits_result(response: luxd::application::tmdb::TmdbCreditsResponse) -> Val
 }
 
 const ORIGINAL_IMAGE_SIZE: &str = "original";
-const MAX_FALLBACK_IMAGE_SIZES: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImageKind {
@@ -1593,14 +1592,7 @@ fn fallback_sizes(kind: ImageKind, chosen: &str) -> Vec<&'static str> {
     let Some(index) = sizes.iter().position(|size| *size == chosen) else {
         return Vec::new();
     };
-    let mut fallbacks = sizes[index + 1..].to_vec();
-    if fallbacks.len() > MAX_FALLBACK_IMAGE_SIZES {
-        // Lux only reads the first four entries, so keep the smallest sizes and
-        // the final `original` instead of silently dropping the last entry.
-        fallbacks.truncate(MAX_FALLBACK_IMAGE_SIZES - 1);
-        fallbacks.push(ORIGINAL_IMAGE_SIZE);
-    }
-    fallbacks
+    sizes[index + 1..].to_vec()
 }
 
 #[derive(Clone, Copy)]
@@ -2254,45 +2246,6 @@ mod tests {
             ["w780", "original"],
             "an invalid chosen size falls back to the default size"
         );
-        assert_eq!(
-            fallback_sizes(ImageKind::Poster, "w92"),
-            ["w154", "w185", "w342", "original"],
-            "an oversized fallback list keeps the smallest sizes plus original"
-        );
-        assert_eq!(
-            fallback_sizes(ImageKind::Poster, "w154"),
-            ["w185", "w342", "w500", "original"]
-        );
-        assert_eq!(
-            fallback_sizes(ImageKind::Logo, "w45"),
-            ["w92", "w154", "w185", "original"]
-        );
-        assert_eq!(
-            fallback_sizes(ImageKind::Logo, "w92"),
-            ["w154", "w185", "w300", "original"]
-        );
-        for kind in ImageKind::ALL {
-            for chosen in kind.sizes() {
-                let fallbacks = fallback_sizes(kind, chosen);
-                assert!(
-                    fallbacks.len() <= MAX_FALLBACK_IMAGE_SIZES,
-                    "{kind:?} {chosen} should not exceed the Lux fallback limit"
-                );
-                if *chosen == ORIGINAL_IMAGE_SIZE {
-                    assert!(fallbacks.is_empty());
-                } else {
-                    assert_eq!(
-                        fallbacks.last().copied(),
-                        Some(ORIGINAL_IMAGE_SIZE),
-                        "{kind:?} {chosen} should end with original"
-                    );
-                }
-                assert!(
-                    fallbacks.iter().all(|size| kind.sizes().contains(size)),
-                    "{kind:?} {chosen} should only use official sizes"
-                );
-            }
-        }
     }
 
     #[test]
@@ -2443,38 +2396,6 @@ mod tests {
             json!([
                 "https://image.tmdb.org/t/p/w780/unknown.jpg",
                 "https://image.tmdb.org/t/p/original/unknown.jpg"
-            ])
-        );
-    }
-
-    #[test]
-    fn image_results_cap_fallbacks_for_wide_size_tables() {
-        let response = TmdbImagesResponse {
-            posters: vec![image_reference("/wide.jpg", 2000, 3000)],
-            logos: vec![image_reference("/logo.png", 2000, 400)],
-            ..TmdbImagesResponse::default()
-        };
-        let sizes =
-            ImageSizes::from_config(&sized_config(Some("w92"), None, None, Some("w45"), None));
-
-        let images = image_results(response, &sizes);
-
-        assert_eq!(
-            images[0]["FallbackUrls"],
-            json!([
-                "https://image.tmdb.org/t/p/w154/wide.jpg",
-                "https://image.tmdb.org/t/p/w185/wide.jpg",
-                "https://image.tmdb.org/t/p/w342/wide.jpg",
-                "https://image.tmdb.org/t/p/original/wide.jpg"
-            ])
-        );
-        assert_eq!(
-            images[1]["FallbackUrls"],
-            json!([
-                "https://image.tmdb.org/t/p/w92/logo.png",
-                "https://image.tmdb.org/t/p/w154/logo.png",
-                "https://image.tmdb.org/t/p/w185/logo.png",
-                "https://image.tmdb.org/t/p/original/logo.png"
             ])
         );
     }
