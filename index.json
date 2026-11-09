@@ -404,9 +404,9 @@
     {
       "id": "org.lux.trakt-ratings",
       "name": "Trakt 多源评分",
-      "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议。本插件只做查询：不读取媒体库文件、不写 NFO、不触发媒体库刷新，这三件事由宿主完成。",
+      "description": "通过 Trakt 的 extended=all 聚合评分端点，一次性取得 Trakt / TMDb / IMDb / Metascore / 烂番茄 / Letterboxd / MyAnimeList 的评分与 10 档分布派生指标，并给出宿主可直接落盘的 writeback 建议（含 Kodi <ratings> 片段）。插件只查询并给出 Kodi 格式的写回内容；遍历媒体库、写 NFO、触发刷新由宿主的 RATINGS_SYNC 任务完成。",
       "category": "SCRAPER",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "runtime": "process",
       "providerKey": "trakt",
       "aliases": [
@@ -421,14 +421,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.0-linux-aarch64.zip",
-          "sha256": "6409815a98fefcc4795eccda71c7d477132d113ccf8e6bd70989c4b21439d93d"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.1-linux-aarch64.zip",
+          "sha256": "ae35a44735b7e94e4b180bf42d7f218cd12e877b16cfdcbdc01f5c19a714f391"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.0-linux-x86_64.zip",
-          "sha256": "9e2001e9c22ded820b3c374930a1b1f7057ea4a6f3e8729d8e529ab24dc0fdd5"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.trakt-ratings/org.lux.trakt-ratings-0.1.1-linux-x86_64.zip",
+          "sha256": "f09ab02a31b294032674d547db9364e889dd7adaf1fd408d23bb72cf70693ac4"
         }
       ]
     },
