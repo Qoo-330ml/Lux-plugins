@@ -315,7 +315,7 @@
       "name": "strm媒体信息提取",
       "description": "使用 ffprobe 提取媒体信息，并使用 ffmpeg 补全 STRM 缩略图。",
       "category": "MEDIA",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "runtime": "process",
       "providerKey": null,
       "aliases": [],
@@ -328,14 +328,14 @@
         {
           "platform": "linux",
           "arch": "aarch64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.8-linux-aarch64.zip",
-          "sha256": "9320f1d7acee908c5e72c83c523c7204fecb6dd8396aff2de85e061116937066"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.9-linux-aarch64.zip",
+          "sha256": "f09735c2bb2df22f8b956545be5ad1d443093da896182d6e9f08ed1dd9df9fee"
         },
         {
           "platform": "linux",
           "arch": "x86_64",
-          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.8-linux-x86_64.zip",
-          "sha256": "03beaf816fdd52b892dc1763a9d48d561a3f26a80fbad1479a5610de6c691c3d"
+          "url": "https://github.com/Qoo-330ml/Lux-plugins/releases/download/org.lux.strm-media-info/org.lux.strm-media-info-0.2.9-linux-x86_64.zip",
+          "sha256": "40dc913abddfdfb95c5e6744e3d43e46de696f87a28b358c9f5caf3dc0803ef2"
         }
       ]
     },
