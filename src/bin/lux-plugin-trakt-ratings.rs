@@ -27,7 +27,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 const PLUGIN_ID: &str = "org.lux.trakt-ratings";
 const PLUGIN_NAME: &str = "Trakt 多源评分";
 const BASE_URL: &str = "https://api.trakt.tv";
-const DEFAULT_MIN_VOTES: u32 = 50;
+const DEFAULT_MIN_VOTES: u32 = 10;
 const MAX_BODY_BYTES: usize = 512 * 1024;
 
 /// manifest 里 `type: text` 的字段到宿主会变成字符串，而数字也可能直接传进来，
@@ -901,10 +901,15 @@ mod tests {
     }
 
     #[test]
+    fn default_min_votes_is_ten() {
+        assert_eq!(Config::default().min_votes(), 10);
+    }
+
+    #[test]
     fn writeback_nfo_is_null_when_not_confident() {
         let result = build_result(
             &Config::default(),
-            &json!({"trakt": {"rating": 6.0, "votes": 10}}),
+            &json!({"trakt": {"rating": 6.0, "votes": 9}}),
             Some("1".to_owned()),
             "id",
             None,

@@ -57,7 +57,7 @@ fn assert_scheduled_task_matches_host_rules(manifest: &Value, task: &Value) {
         .as_str()
         .expect("defaultSchedule should be a string");
     assert_eq!(default_schedule.split_whitespace().count(), 5);
-    assert_eq!(default_schedule, "0 4 * * *");
+    assert_eq!(default_schedule, "0 4 * * 0");
 
     let required = task["requiredConfigKeys"]
         .as_array()
@@ -122,7 +122,7 @@ fn the_shipped_manifest_validates_and_declares_the_ratings_sync_task() {
     let schedule = config_field(&manifest, "schedule");
     assert_eq!(schedule["type"], "text");
     assert_eq!(schedule["required"], true);
-    assert_eq!(schedule["defaultValue"], "0 4 * * *");
+    assert_eq!(schedule["defaultValue"], "0 4 * * 0");
 
     let tasks = manifest["scheduledTasks"]
         .as_array()

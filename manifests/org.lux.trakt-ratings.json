@@ -50,7 +50,7 @@
       "label": "最低票数",
       "type": "text",
       "required": false,
-      "defaultValue": "50",
+      "defaultValue": "10",
       "description": "Trakt 票数低于此值时标记为 lowConfidence，调用方应保留原评分。中文片在 Trakt 的票数普遍很低。"
     },
     {
@@ -92,8 +92,8 @@
       "label": "执行计划",
       "type": "text",
       "required": true,
-      "defaultValue": "0 4 * * *",
-      "description": "按 UTC 执行评分同步任务，默认每天 04:00。"
+      "defaultValue": "0 4 * * 0",
+      "description": "按 UTC 执行评分同步任务，默认每周日 04:00。"
     }
   ],
   "scheduledTasks": [
@@ -104,7 +104,7 @@
       "name": "Trakt 评分同步",
       "description": "按选中媒体库遍历 NFO，调用 ratings.batch 查询 Trakt 评分，并写回 Kodi <ratings> 片段与顶层 rating/votes/criticrating。",
       "scheduleConfigKey": "schedule",
-      "defaultSchedule": "0 4 * * *",
+      "defaultSchedule": "0 4 * * 0",
       "requiredConfigKeys": [
         "clientId",
         "libraryIds"

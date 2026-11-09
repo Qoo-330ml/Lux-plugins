@@ -39,7 +39,7 @@
   "traktId": 425981,
   "matchedBy": "id",          // id | tmdb | imdb | title+year | episode
   "lowConfidence": false,
-  "minVotes": 50,
+  "minVotes": 10,
   "primary": { "rating": 6.56425, "votes": 280, ... },
   "stats": { "median": 7, "stddev": 1.57, "entropy": 0.762, "lowRate": 3.9, "highRate": 27.5, "votes": 280 },
   "distribution": { "1": 1, "2": 6, ..., "10": 11 },
@@ -151,7 +151,7 @@ Jellyfin 对非番茄条目只保留最后一个 `CommunityRating`。插件把�
 
 - `libraryIds`：`select` + `multiple` + `optionsSource: "media-libraries"`，只对选中的媒体库查询并
   回写评分；不选择任何媒体库时宿主不会创建同步任务。
-- `schedule`：UTC cron，默认 `0 4 * * *`。
+- `schedule`：UTC cron，默认 `0 4 * * 0`。
 
 清单同时声明：
 
@@ -162,7 +162,7 @@ Jellyfin 对非番茄条目只保留最后一个 `CommunityRating`。插件把�
   "ownerConfigKey": "libraryIds",
   "name": "Trakt 评分同步",
   "scheduleConfigKey": "schedule",
-  "defaultSchedule": "0 4 * * *",
+  "defaultSchedule": "0 4 * * 0",
   "requiredConfigKeys": ["clientId", "libraryIds"]
 }
 ```

@@ -14,5 +14,5 @@
   {"id": "org.lux.notifier.email", "binary": "lux-plugin-notifier-email", "version": "0.1.0", "manifest": "manifests/org.lux.notifier.email.json"},
   {"id": "org.lux.notifier.feishu", "binary": "lux-plugin-notifier-feishu", "version": "0.1.0", "manifest": "manifests/org.lux.notifier.feishu.json"},
   {"id": "org.lux.notifier.wecom-app", "binary": "lux-plugin-notifier-wecom-app", "version": "0.1.0", "manifest": "manifests/org.lux.notifier.wecom-app.json"},
-  {"id": "org.lux.trakt-ratings", "binary": "lux-plugin-trakt-ratings", "version": "0.1.0", "manifest": "manifests/org.lux.trakt-ratings.json"}
+  {"id": "org.lux.trakt-ratings", "binary": "lux-plugin-trakt-ratings", "version": "0.1.1", "manifest": "manifests/org.lux.trakt-ratings.json"}
 ]
