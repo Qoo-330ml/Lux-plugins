@@ -43,6 +43,10 @@ struct MediaProbeRequest {
     include_thumbnail: bool,
     #[serde(default = "default_thumbnail_position_percent")]
     thumbnail_position_percent: i64,
+    /// Exact User-Agent the client used to obtain the target, forwarded by the host for
+    /// playback-triggered probes. Providers may bind a short-lived link to that UA.
+    #[serde(default)]
+    user_agent: Option<String>,
 }
 
 fn default_media_info_enabled() -> bool {
@@ -412,8 +416,19 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
             message: "thumbnail position percent is invalid".to_owned(),
         });
     }
+    if let Some(user_agent) = request.user_agent.as_deref()
+        && !valid_user_agent(user_agent)
+    {
+        return Err(PluginRpcError {
+            code: "MEDIA_PROBE_INVALID_REQUEST".to_owned(),
+            message: "user agent is invalid".to_owned(),
+        });
+    }
+    // Byte-for-byte the client's value when the host forwarded one; the default only covers
+    // scheduled and incremental probes that have no client request behind them.
+    let user_agent = request.user_agent.as_deref().unwrap_or(HTTP_USER_AGENT);
     let result = if request.include_media_info {
-        run_ffprobe(&request.url).await?
+        run_ffprobe(&request.url, user_agent).await?
     } else {
         empty_media_result()
     };
@@ -422,7 +437,7 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
             Some(duration_ticks) => Some(duration_ticks),
             // A full probe already read `format.duration`; asking again cannot find it.
             None if request.include_media_info => None,
-            None => Some(run_ffprobe_duration(&request.url).await?),
+            None => Some(run_ffprobe_duration(&request.url, user_agent).await?),
         }
     } else {
         None
@@ -434,6 +449,7 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
                 &request.url,
                 &thumbnail_timestamp(duration_ticks, request.thumbnail_position_percent)
                     .ok_or_else(duration_error)?,
+                user_agent,
             )
             .await?,
         )
@@ -448,27 +464,41 @@ async fn probe(params: Value) -> Result<Value, PluginRpcError> {
 }
 
 /// Input options that make `ffprobe`/`ffmpeg` behave like a player against HTTP(S) targets.
-fn network_args(target: &str) -> Vec<&'static str> {
+fn network_args(target: &str, user_agent: &str) -> Vec<String> {
     let lower = target.get(..8).unwrap_or(target).to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {
         vec![
-            "-user_agent",
-            HTTP_USER_AGENT,
-            "-rw_timeout",
-            HTTP_RW_TIMEOUT_MICROS,
-            "-reconnect",
-            "1",
-            "-reconnect_streamed",
-            "1",
-            "-reconnect_delay_max",
-            "2",
+            "-user_agent".to_owned(),
+            user_agent.to_owned(),
+            "-rw_timeout".to_owned(),
+            HTTP_RW_TIMEOUT_MICROS.to_owned(),
+            "-reconnect".to_owned(),
+            "1".to_owned(),
+            "-reconnect_streamed".to_owned(),
+            "1".to_owned(),
+            "-reconnect_delay_max".to_owned(),
+            "2".to_owned(),
         ]
     } else {
         Vec::new()
     }
 }
 
-async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
+/// Maximum length of a forwarded client User-Agent.
+const MAX_USER_AGENT_LEN: usize = 1024;
+
+/// Whether the host-provided User-Agent can be passed to ffprobe/ffmpeg verbatim.
+///
+/// The value must stay byte-identical to what the client sent, so nothing is trimmed or
+/// normalized; only control characters (unsafe as an argv entry) and oversized values are
+/// rejected.
+fn valid_user_agent(user_agent: &str) -> bool {
+    !user_agent.is_empty()
+        && user_agent.len() <= MAX_USER_AGENT_LEN
+        && !user_agent.chars().any(char::is_control)
+}
+
+async fn run_ffprobe(url: &str, user_agent: &str) -> Result<MediaProbeResult, PluginRpcError> {
     let binary = ffprobe_binary()?;
     let mut child = Command::new(binary)
         .args([
@@ -479,7 +509,7 @@ async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
             "-show_format",
             "-show_streams",
         ])
-        .args(network_args(url))
+        .args(network_args(url, user_agent))
         .arg(url)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -504,7 +534,7 @@ async fn run_ffprobe(url: &str) -> Result<MediaProbeResult, PluginRpcError> {
     parse_probe_json(&output.1).map_err(map_probe_error)
 }
 
-async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
+async fn run_ffprobe_duration(url: &str, user_agent: &str) -> Result<i64, PluginRpcError> {
     let binary = ffprobe_binary()?;
     let mut child = Command::new(binary)
         .args([
@@ -515,7 +545,7 @@ async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
             "-show_entries",
             "format=duration",
         ])
-        .args(network_args(url))
+        .args(network_args(url, user_agent))
         .arg(url)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -550,11 +580,15 @@ async fn run_ffprobe_duration(url: &str) -> Result<i64, PluginRpcError> {
     parse_duration_probe(&output.1).ok_or_else(duration_error)
 }
 
-async fn run_ffmpeg_thumbnail(url: &str, timestamp: &str) -> Result<Vec<u8>, PluginRpcError> {
+async fn run_ffmpeg_thumbnail(
+    url: &str,
+    timestamp: &str,
+    user_agent: &str,
+) -> Result<Vec<u8>, PluginRpcError> {
     let binary = ffmpeg_binary()?;
     let mut child = Command::new(binary)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
-        .args(network_args(url))
+        .args(network_args(url, user_agent))
         .args([
             "-ss",
             timestamp,
@@ -879,7 +913,10 @@ fn rpc_stream(stream: luxd::application::probe::MediaStreamResult) -> MediaProbe
 
 #[cfg(test)]
 mod tests {
-    use super::{BASE64, classify_failure, handle_method, network_args, process_error};
+    use super::{
+        BASE64, HTTP_USER_AGENT, classify_failure, handle_method, network_args, process_error,
+        valid_user_agent,
+    };
     use base64::Engine as _;
     use serde_json::json;
 
@@ -974,14 +1011,30 @@ mod tests {
 
     #[test]
     fn http_targets_get_player_like_network_options_and_others_do_not() {
-        let args = network_args("HTTPS://cdn.example/v.mkv");
+        let args = network_args("HTTPS://cdn.example/v.mkv", HTTP_USER_AGENT);
         assert!(
             args.windows(2)
-                .any(|pair| pair == ["-user_agent", "Lux/strm-playback"])
+                .any(|pair| pair[0] == "-user_agent" && pair[1] == HTTP_USER_AGENT)
         );
-        assert!(args.contains(&"-rw_timeout"));
-        assert!(network_args("/mnt/media/v.mkv").is_empty());
-        assert!(network_args("ftp://nas/v.mkv").is_empty());
+        assert!(args.iter().any(|arg| arg == "-rw_timeout"));
+        assert!(network_args("/mnt/media/v.mkv", HTTP_USER_AGENT).is_empty());
+        assert!(network_args("ftp://nas/v.mkv", HTTP_USER_AGENT).is_empty());
+    }
+
+    #[test]
+    fn client_user_agent_is_forwarded_byte_for_byte() {
+        let user_agent =
+            "Mozilla/5.0  (iPhone; CPU iPhone OS 17_0 like Mac OS X)  AppleWebKit/605.1.15";
+        let args = network_args("http://cdn.example/v.mkv", user_agent);
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-user_agent" && pair[1] == user_agent),
+            "{args:?}"
+        );
+        assert!(valid_user_agent(user_agent));
+        assert!(!valid_user_agent(""));
+        assert!(!valid_user_agent("bad\nua"));
+        assert!(!valid_user_agent(&"a".repeat(1025)));
     }
 
     #[test]
